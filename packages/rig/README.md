@@ -75,6 +75,14 @@ for (const fixture of await loadCorpus()) {
 { port, stop() } }`. Anything that listens on loopback and proxies qualifies — the
 V1 gateway, a future h2 transport (V4e), or a deliberately broken double.
 
+For latency acceptance at statistic scale (V1/A7: p50/p99 over ≥1000 requests;
+V4b's TTFB criterion), use `runLatencyBenchmark`: alternating paired runs
+(direct, SUT, direct, …) so machine drift cancels per pair, warmup excluded,
+nearest-rank percentiles, every pair protocol-sanity-checked (a body-sha
+divergence mid-benchmark is an anomaly, because the latency of a mutated
+response is not the measurement). `checkLatencyBudget` turns a result into
+pass/fail violations; `formatLatencyResult` renders it for CI logs.
+
 Fixture format, provenance classes and integrity model: `fixtures/README.md`.
 
 ## Known limits (stated, not hidden)

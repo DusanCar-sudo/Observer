@@ -97,7 +97,7 @@ origin only). `OBSERVER_TAP_DEBUG=1` traces exchanges to stderr.
 | Zero mutation of traffic | **MET** — full-corpus differential conformance (29/29) |
 | Redaction pass before commit | **MET** — `redactCapture()` + tests; raw store untouched |
 | Captures a full REAL DSH→qwen session (streaming, tool calls, reasoning) | **BLOCKED ON A LIVE RUN** — needs the Human/lead to point DSH at the tap (config change outside my sandbox) and run a session. Everything else is ready; the runbook is above. |
-| ≥20-fixture set from live traffic, or documented unobtainables | **DOCUMENTED BELOW**; the export tool lands with the first real captures |
+| ≥20-fixture set from live traffic, or documented unobtainables | Unobtainables **DOCUMENTED BELOW**; the export tool (`tools/captures-to-fixtures.mjs`) is **BUILT AND TESTED END TO END** on synthetic captures (capture → convert → rig-load → ReferencePipe conformance, zero diffs) — the live run just feeds it real bytes |
 
 ### Which V0 fixture categories live traffic can and cannot produce
 
