@@ -27,7 +27,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { gzipSync } from 'node:zlib'
+import { gzipSync, gunzipSync } from 'node:zlib'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -873,7 +873,7 @@ def({
       reason: 'OK',
       headers: jsonResHeaders([['content-encoding', 'gzip']]),
       framing: 'length',
-      writes: [{ file: 'response.gzip.bin', bytes: gz, delayMs: 10 }],
+      writes: [{ file: 'response.gzip.bin', bytes: gz, gzipOf: json, delayMs: 10 }],
     },
   })
 }
@@ -998,6 +998,12 @@ const INLINE_LIMIT = 4096 // request bodies above this size go to request.bin
 function buildFixture(d) {
   const files = new Map() // relpath (within fixture dir) -> Buffer
   const generated = {} // key -> { spec, sha256, bytes }
+  // Files whose bytes are compressed artifacts: gzip output is zlib-version
+  // dependent, so --check verifies them by committed-manifest hash + semantic
+  // (decompressed) equality instead of byte-recompression. CI runs a different
+  // zlib build than the machine that froze the bytes; the DECOMPRESSED content is
+  // the platform-independent contract.
+  const zlibDependent = new Map() // relpath -> source string it must decompress to
 
   // ---- request body ----
   let bodyBytes
@@ -1033,6 +1039,7 @@ function buildFixture(d) {
     } else if (w.file) {
       entry.payload = { file: w.file }
       files.set(w.file, w.bytes)
+      if (w.gzipOf !== undefined) zlibDependent.set(w.file, w.gzipOf)
     } else {
       throw new Error(`fixture ${d.id}: write ${i} has neither payload string nor file`)
     }
@@ -1069,7 +1076,12 @@ function buildFixture(d) {
     const buf = files.get(name)
     manifestFiles[name] = { sha256: sha(buf), bytes: buf.length }
   }
-  return { id: d.id, files, manifestEntry: { id: d.id, dir: d.id, files: manifestFiles, ...(Object.keys(generated).length ? { generated } : {}) } }
+  return {
+    id: d.id,
+    files,
+    zlibDependent,
+    manifestEntry: { id: d.id, dir: d.id, files: manifestFiles, ...(Object.keys(generated).length ? { generated } : {}) },
+  }
 }
 
 function main() {
@@ -1079,7 +1091,20 @@ function main() {
 
   if (CHECK) {
     const problems = []
+    const manifestPath = path.join(CORPUS, 'manifest.json')
+    if (!existsSync(manifestPath)) {
+      console.error('build-fixtures --check: FAILED — manifest.json missing; run: node tools/build-fixtures.mjs')
+      process.exit(1)
+    }
+    const committedManifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const rebuiltManifest = { version: 1, fixtures: built.map((b) => b.manifestEntry) }
+
     for (const b of built) {
+      const committedEntry = committedManifest.fixtures.find((f) => f.id === b.id)
+      if (!committedEntry) {
+        problems.push(`MISSING manifest entry for ${b.id}`)
+        continue
+      }
       for (const [rel, expected] of b.files) {
         const p = path.join(CORPUS, b.id, rel)
         if (!existsSync(p)) {
@@ -1087,23 +1112,50 @@ function main() {
           continue
         }
         const onDisk = readFileSync(p)
-        if (rel === 'response.gzip.bin') {
-          // zlib output is version-dependent: verify against the manifest hash, not a re-compression.
-          const entry = b.manifestEntry.files[rel]
-          const diskSha = sha(onDisk)
-          if (diskSha !== entry.sha256) problems.push(`HASH ${b.id}/${rel}: disk ${diskSha} != manifest ${entry.sha256}`)
-          continue
+        // (1) Integrity: disk bytes must match the COMMITTED manifest (this is the
+        //     same contract the rig loader enforces at test time).
+        const cm = committedEntry.files?.[rel]
+        if (!cm) {
+          problems.push(`MANIFEST-ENTRY MISSING ${b.id}/${rel}`)
+        } else if (sha(onDisk) !== cm.sha256 || onDisk.length !== cm.bytes) {
+          problems.push(`HASH ${b.id}/${rel}: disk ${sha(onDisk)} != committed manifest ${cm.sha256}`)
         }
-        if (!onDisk.equals(expected)) problems.push(`DIFFERS ${b.id}/${rel}`)
+        // (2) Builder drift: deterministic files must equal a fresh rebuild.
+        //     zlib-dependent files are exempt from byte comparison (their bytes are
+        //     frozen artifacts of the machine that built them) and get the semantic
+        //     check in (3) instead.
+        const gzSource = b.zlibDependent.get(rel)
+        if (gzSource === undefined && !onDisk.equals(expected)) {
+          problems.push(`DIFFERS ${b.id}/${rel}`)
+        }
+        // (3) Semantic check for compressed artifacts: decompressed content must
+        //     equal the builder's source — platform-independent, unlike gzip bytes.
+        if (gzSource !== undefined) {
+          let decompressed
+          try {
+            decompressed = gunzipSync(onDisk)
+          } catch (err) {
+            problems.push(`GUNZIP ${b.id}/${rel}: ${err.message}`)
+            decompressed = undefined
+          }
+          if (decompressed && decompressed.toString('utf8') !== gzSource) {
+            problems.push(`GZIP-CONTENT ${b.id}/${rel}: decompressed bytes != builder source`)
+          }
+          // The rebuilt manifest must carry the COMMITTED hash for this file (the
+          // recompressed bytes are allowed to differ across zlib versions).
+          const target = rebuiltManifest.fixtures.find((f) => f.id === b.id)
+          if (target && cm) target.files[rel] = cm
+        }
       }
-      // generated payloads: re-run the generator and compare to the pinned hash
-      for (const [key, g] of Object.entries(b.manifestEntry.generated ?? {})) {
+      // (4) Generated payloads: re-run the generator, compare to the COMMITTED pins
+      //     (cross-platform determinism check — the rig loader does the same at test time).
+      for (const [key, g] of Object.entries(committedEntry.generated ?? {})) {
         const out = bigChatBody(g.spec)
         if (sha(out) !== g.sha256 || out.length !== g.bytes) {
-          problems.push(`GENERATOR ${b.id}/${key}: output sha/bytes != pinned manifest values`)
+          problems.push(`GENERATOR ${b.id}/${key}: output sha/bytes != committed manifest pins`)
         }
       }
-      // stale files on disk that this build would not produce
+      // (5) Stale files on disk that this build would not produce
       const dir = path.join(CORPUS, b.id)
       if (existsSync(dir)) {
         for (const name of readdirSync(dir)) {
@@ -1111,9 +1163,9 @@ function main() {
         }
       }
     }
-    const manifestPath = path.join(CORPUS, 'manifest.json')
-    if (!existsSync(manifestPath)) problems.push('MISSING manifest.json')
-    else if (!readFileSync(manifestPath).equals(manifestBytes)) problems.push('DIFFERS manifest.json')
+    // (6) manifest.json as a whole (with zlib entries normalized to committed values)
+    const expectedManifestBytes = utf8(`${JSON.stringify(rebuiltManifest, null, 2)}\n`)
+    if (!readFileSync(manifestPath).equals(expectedManifestBytes)) problems.push('DIFFERS manifest.json')
     if (existsSync(CORPUS)) {
       const known = new Set(defs.map((d) => d.id).concat(['manifest.json']))
       for (const name of readdirSync(CORPUS)) {
@@ -1126,7 +1178,7 @@ function main() {
       console.error('Rebuild deliberately: node tools/build-fixtures.mjs')
       process.exit(1)
     }
-    console.log(`build-fixtures --check: ok — ${built.length} fixtures match the builder; manifest hashes verified.`)
+    console.log(`build-fixtures --check: ok — ${built.length} fixtures match the builder; committed hashes verified.`)
     return
   }
 
