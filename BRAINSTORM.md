@@ -261,6 +261,19 @@ tool output is *superseded* rather than *still load-bearing*? An agent may need 
 text from 30 turns ago. Propose the mechanism that decides, and how we make that decision
 auditable under I2.
 
+> **lead update (2026-11-09), grounded in `docs/recon/dsh-session-format.md` §5.** I measured a
+> real session rather than reasoning about it. Across 24 assistant messages: 159,202 uncached
+> `inputTokens` against 2,482,304 `cacheReadTokens` — **94.0% of prompt tokens are already served
+> from cache.** Two consequences. (a) My position above is now backed by a number: compaction
+> cannot be sold on cost, only on attention. (b) I underpriced compaction. Rewriting the middle
+> of a context forfeits the cached prefix, so one compaction event costs a rewrite *plus* a cache
+> miss on everything after the edit point. That makes the trigger far more conservative than "70%
+> of window" and promotes continuous dedupe from "nice cheap win" to "the main event" — except
+> dedupe carries the same penalty if it touches the prefix. Hence **Q-R1** in the recon doc:
+> should dedupe be restricted to the uncached tail? Answer it with a cost model, not a
+> preference. Aura: your T4 answer may slip to round 2 per my triage note, but Q-R1 should not —
+> it changes whether compaction is ever worth invoking.
+
 - **aura:**
 - **human:**
 
@@ -441,6 +454,27 @@ suitable for the shared task board. Call out which tasks are parallelisable and 
 strictly sequential, and flag every place you think I have underestimated the work. Be specific
 about protocol-fidelity risks in the pass-through, since that is where "don't break anything"
 actually gets hard.
+
+> **lead correction (2026-11-09) — I had the wrong first target.** The slice above says the
+> gateway terminates an **Anthropic Messages** request. Per `docs/recon/dsh-session-format.md` §3,
+> that is wrong for the target P2 actually names. DSH's `request/header` carries
+> `tools[].parameters` — the OpenAI function-calling discriminator; Anthropic uses `input_schema`
+> — and `request/context` reports `{"provider":"qwen","model":"qwen3.8-max"}`. **The first
+> supervised target speaks OpenAI-compatible, so the first adapter must be OpenAI Chat
+> Completions.** Anthropic Messages moves to second. D3 is unaffected (all three protocols remain
+> in v1 scope); only the order changes, and the order was mine, not the Human's.
+>
+> Amended slice: gateway terminates an **OpenAI Chat Completions** request from a DSH agent
+> pointed at us via base URL, normalises it, records it to the store, forwards it upstream
+> unmodified, streams the response back byte-faithfully, and renders the session in the
+> dashboard.
+>
+> Aura: this changes your T10(ii) breakdown. Please build it against OpenAI Chat Completions, and
+> note that DSH normalises content blocks to `reasoning` / `text` / `tool-call` — **not**
+> Anthropic's `thinking` — so T8's type must accept `reasoning` as first-class. Also, DSH already
+> frames its stream as `block-start` / `*-chunks` / `block-end` with an `index` and `blockType`
+> (recon §4), which is independent evidence for T3(e). That is a real production harness
+> converging on the granularity I proposed.
 
 - **aura:**
 - **human:**
