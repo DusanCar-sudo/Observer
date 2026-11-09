@@ -2770,3 +2770,63 @@ Newest at the bottom. One entry per round per participant.
   from the round-2 `reasoning_content` finding: **raw bytes only** — a typed tap silently drops
   100% of reasoning on target one. Sequencing per the dependency graph: V0a → V1 → {V2,V3,V4} →
   V5 → V7 → V8 (891-call `sed` replay gates) → V9/V10.
+
+### Round 3
+
+- **aura (2026-11-09, benchmark):** Stock `dmn-elements` measures **20.45 ms p50 / 27.73 ms p99**
+  for the whole decision layer — **46× over** the 0.5/2 ms budget, and larger than T7's *entire*
+  15 ms pass-through budget. Root cause located in source: `dmn-elements/src/Expressions.js` calls
+  `feelin.unaryTest(sourceString, ctx)` per cell per rule per evaluation, so FEEL is re-parsed from
+  source every time, and `feelin` exposes no pre-parsed evaluation path. Memoising recovers 5.6×
+  (3.67 ms) but the residual is per-rule engine overhead. **Compiled lookups: 0.0058 ms p50, 86×
+  under budget.** This works *only* because of the finite-enumeration restriction: a decision table
+  over enums is a finite function, so it is enumerated once at build time and the runtime is a hash
+  lookup. Equivalence is **total, not sampled — 195/195 cells, 0 mismatches, now a CI test.**
+  Aura withdrew her own round-3 recommendation to run the engine directly: lead's compile-at-load
+  instinct was correct, and her "do not reimplement, you forfeit the TCK" objection is *satisfied*
+  rather than defeated — ~150 lines that enumerate a domain and record the engine's answers, with
+  the engine still the semantic authority. It also **improves** the v0.4.1 single-maintainer risk
+  she flagged: the engine never runs in production, so a changed or compromised engine alters the
+  compiled artifact, which the golden-cell diff catches at build time. The enum restriction has now
+  earned its keep four times: completeness decidability, float safety, gap detectability, O(1)
+  evaluation.
+  - **B5:** static identifier extraction **1.07 ms** and it correctly flags the three model-derived
+    inputs as outside the conferral allowlist — **the I5 check works and is cheap.** Synthetic
+    non-null evaluation 23.07 ms, 0 nulls. **Gap/overlap product 377.5 ms — 7.5× over the 50 ms
+    hot-reload target**, refuting aura's own Appendix A optimism; static validation therefore moves
+    to **build time**, with the bundle carrying a validation receipt that runtime verifies against
+    the bundle hash. Consequence: Q7's hot reload becomes cheap and D6 resolves.
+  - **B3 allocation: NOT MEASURED.** `heapUsed` fell 0.41 MB over 2,000 evaluations, which is GC
+    timing noise, not a result. Reported as unmeasured rather than dressed up.
+  - **New hazard, found by accident and now pinned as a test:** an `<informationRequirement id="r1">`
+    colliding with a `<rule id="r1">` made that rule **silently stop matching** — no error, no
+    warning. Rule 0 worked, rule 1 never fired, the same rule alone worked fine. For a supervisor
+    this is the worst class of bug: a hand-authored or badly-merged policy file loses rules silently
+    and nothing catches it. **New CI gate: global element-id uniqueness, ids generated
+    mechanically.** Same failure *shape* as the FEEL null hazard arriving from a completely
+    different direction — the strongest argument yet that policy safety is decided at build time,
+    not at runtime.
+  - Caveats stated rather than buried: the fixture is synthetic (the real DRD does not exist yet),
+    loadavg was 3.90 during the run so every tail figure is pessimistic and a clean-machine re-run
+    is owed before these become contractual, and compiled-artifact load time is unmeasured.
+- **lead (2026-11-09):** Aura's requested amendment is **APPROVED**: move two-variable comparisons
+  (`labelSetTokens <= budgetCapTokens`) **into the projection**, so the policy layer receives a
+  plain boolean and the compiled runtime key function duplicates no FEEL semantics. Duplicating a
+  fragment of FEEL — even whitelisted and shape-checked — puts two implementations of one meaning
+  in the codebase, and divergence between them is silent by construction. This must land before
+  anyone authors real tables. Recorded here rather than in `docs/spec/decision-model.md` because
+  aura is stood down as of this round; lead owns the design docs from here.
+- **lead (2026-11-09): `aura` is stood down at the Human's direction.** Round 3 is the end of the
+  delegated design phase. The design record is complete enough to build from: 18 topics, five
+  invariants, four locked decisions, four provisional ones, six empirical ones, and a benchmarked
+  decision layer. Lead takes over implementation and the design docs.
+- **lead (2026-11-09): first working component shipped.** `packages/watcher` + `packages/detectors`
+  + `packages/cli` — `node packages/cli/src/scan.ts` runs the observe-only loop detector over real
+  DSH session logs today, with no gateway required. 11 unit tests green, typechecks clean under
+  `strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`. Measured against the corpus
+  (75 sessions, 10,822 tool calls): fires at iteration 5 on the golden 891-call case (criterion was
+  ≤20), 5 findings total all inside the one pathological session, and 154 legitimate polling groups
+  correctly not alarmed. Threshold calibrated from the distribution — 7,446 of 7,525 repeat groups
+  occur exactly once, with an empty band between size 6 and size 21. The rate window was added
+  because the first run accused its own author of looping for polling `list_agents` six times over
+  101 minutes: repetition alone is not pathology, and that is a measurement, not an opinion.
