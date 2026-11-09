@@ -310,6 +310,15 @@
     "## Layout",
     "## Repository conventions"
   ],
+  "fixtures/README.md": [
+    "# Fixture corpus",
+    "## Layout",
+    "## Provenance classes (declared per fixture, enforced by the loader)",
+    "## Integrity model",
+    "## Regenerating",
+    "## Budget note (spec §3)",
+    "## Coverage"
+  ],
   "fixtures/derived/PROVENANCE.md": [
     "# Provenance — fixtures/derived",
     "## dsh-qwen-40-tools.header.json"

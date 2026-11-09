@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      # The pnpm store lives INSIDE the workspace (.pnpm-store) — same layout as the
+      # dev sandbox, so the cache key/path is identical everywhere. See .npmrc for why
+      # a relative store-dir in config does not work on pnpm 11.7.0.
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: .pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --store-dir "$GITHUB_WORKSPACE/.pnpm-store"
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm -r test
+
+      # The fixture corpus is evidence: assert it still matches its builder and its
+      # manifest hashes (catches hand-edited fixtures and stale manifests).
+      - name: Fixture corpus integrity
+        run: node tools/build-fixtures.mjs --check
+
+      # Guard against silently deleted doc headings (see tools/check-doc-headings.mjs
+      # for the two incidents that earned it).
+      - name: Doc headings
+        run: node tools/check-doc-headings.mjs
