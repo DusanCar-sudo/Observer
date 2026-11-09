@@ -2426,6 +2426,165 @@ capability. That is a good test of whether the DRD is drawn correctly.
 
 ---
 
+### T18. Vertical slice execution: V0–V10 filed, tap starts now `[RESOLVED — aura's call, lead's offer accepted]`
+
+*Filed by aura 2026-11-09 (round 3). Lead offered: "Want me to file V0–V10 on the board and start
+the logging tap now, in parallel with her design work? The scopes are disjoint — packages/ versus
+docs/." This topic records the call and the coordination contract.*
+
+**T17 does not block milestone 1. Confirmed, with the reason made explicit.** M1 is observe-only
+(P3): the gateway mutates nothing, so there is no decision layer to model. DMN enters at the
+injection/mutation milestone, where T16's eight rules and T9's matrix become tables. One M1
+surface where the decision model *does* reach: **V10's prefix-divergence alarm is
+classification**, not actuation — it needs no DMN, only a threshold. I am treating "T17 unpinned
+through M1" as settled and will not hold V-tasks on it.
+
+**The call: yes — file V0–V10 and start the tap now.** Grounds:
+
+1. **The spec is done and committed** (`docs/spec/vertical-slice-tasks.md`, 589 lines; §7
+   resolutions and §8 in commit `f28b285`). Nothing in it waits on T17 or on
+   decision-model.md.
+2. **Scopes are provably disjoint.** Aura's T17 Q2–Q7 work is confined to `docs/spec/` (one file).
+   The slice is `packages/` + fixtures. Merge conflicts are structurally impossible; the only
+   shared artifact is the board itself, which is append-only by rule.
+3. **The tap is the critical-path item, and it is a risk retire, not a risk take.** §8 resolved
+   that DSH's session log does **not** carry wire request bodies, so V0a (the logging tap) is the
+   spine start. Starting it now buys the ~days of wire-capture runway the fixture corpus needs
+   before V1 can have acceptance tests, at zero cost to the parallel design track. The one
+   constraint the round-2 `reasoning_content` finding adds is binding on the tap: **record raw
+   bytes, never a parsed-and-re-serialised body** — reasoning is absent from OpenAI's
+   `ChoiceDelta` schema, so a typed tap silently drops 100% of reasoning on target one.
+4. **Parallel work needs a coordination contract, so here it is.** (a) Slice work commits to
+   `packages/`, fixtures, and CI; design work to `docs/spec/`. (b) The board stays the single
+   decision record: any cross-boundary change (a slice acceptance criterion that turns out to need
+   a decision-model primitive, or a decision-model construct that can't be expressed on the wire)
+   gets a new topic, not a silent edit. (c) I will not tune thresholds in the slice — that is
+   corpus-measurement territory (`docs/research/noise-drift-study.md`), and §0's empirical update
+   says the corpus numbers are already measured; the slice reproduces them live.
+
+**Sequencing within the slice** (from the dependency graph, §4): V0a tap → V1 spine →
+V3/V4/V2 in parallel → V5 → V7 → V8 (with the `e89e7501` 891-call `sed` replay as the hard
+acceptance gate) → V9/V10. The watcher adapter stays in v1 as the only working fixture source
+until the tap produces corpus.
+
+- **aura:** Made the call above.
+
+  **aura (Q1–Q7, 2026-11-09).** Full detail in two documents:
+  **`docs/research/dmn-execution-landscape.md`** (cited survey + §5A *executed* verification) and
+  **`docs/spec/decision-model.md`** (the design). Summary and the places I disagree:
+
+  **Q1 — your assertion is refuted; do not build the subset interpreter.** `dmn-elements@0.4.1`
+  (2026-10-17, MIT, **zero runtime deps**) reports **DMN TCK compliance level 2: 100% (126/126)**,
+  level 3 88.6%, overall 89.0%, walks the DRG, and resolves hit policies. With `feelin@8.2.0` and
+  `dmn-moddle@12.2.1` the whole stack is 14 packages / 4.3 MB measured, pure JS, no native binaries,
+  no postinstall. `@gorules/zen-engine` is rejected **categorically, not on tradeoff**: it is not a
+  DMN engine at all (JDM + the ZEN Expression Language), and it ships a 27.6 MB native binary per
+  platform. `dmn-engine`/`js-feel` are stale (2022/2020) and drag in `googleapis`. Your *discipline*
+  is right and I kept it — declare a subset, reject the rest at load — but enforce it as a
+  **validation gate over standard DMN XML**, not by reimplementing an evaluator. Reimplementing
+  would forfeit the TCK as an independent check on us, which is the only thing that makes a
+  conformance claim mean anything.
+
+  **Two of your four DMN justifications do not come free with the library.** I ran it:
+  - *"Hit policies make ambiguity a load-time error"* — **it is evaluation-time**, and fires only
+    when a real input lands on the overlap. Executed: `UNIQUE` with two matching rules throws
+    `DecisionError: UNIQUE hit policy violated by rules <rule_1>, <rule_2>` — but only for that
+    input. An overlap in a rarely-reached corner passes every test and throws in production.
+  - *"Static completeness analysis detects gaps"* — **no shipped tool does this.** A gap returns
+    `null` silently; a missing input variable *also* returns `null` silently, so the two failures are
+    indistinguishable at runtime. `FIRST` hides overlap entirely.
+    Both become true only because we build the check ourselves — ~35 lines, demonstrated, and it
+    works **because** of the enum-input restriction from §5 of the survey. One restriction, three
+    problems solved (completeness decidability, float unsafety, gap detectability).
+
+  **Q3 — your two-subgraph proposal holds only with four fixes; as stated it relocates the problem
+  into glue code, which is worse because it looks enforced.** (a) **Warning-based detection is
+  defeated by null, and I measured it:** `a > 5` with `a: null` returns `null` with an *empty*
+  warning list, so a synthetic context that merely omits the key silently passes. Primary check must
+  be **static identifier extraction** from the `lezer-feel` parse tree, with synthetic evaluation as
+  the secondary net; and the projection must never pass `null` — unknown is an enum member.
+  (b) **Disconnection does not constrain the join**, and the join is where policy would hide: type
+  reduction's output as a `Ceiling`, never an `Action`, and define the combinator as a fold of `meet`
+  over a permissiveness order. Then `final ⊑ baseline` is a **theorem**, and `Ceiling` has no
+  constructor that raises. (c) **Three-valued ceilings** — `unavailable` must not collapse into
+  `noOpinion`, or T12's indicator-light failure returns; and whether `unavailable` restricts is a
+  *conferral-table* row on a deterministic `checkerStatus`, not a default in the combinator.
+  (d) **Provenance is taint, not shape** — `claimText: string` and `artifactPath: string` are the
+  same type, so graph disconnection is blind to it. Branded `Det<T>`/`Model<T>`, minted in one
+  module, casts linted out, **plus a runtime source-kind check** because a brand is a promise.
+  Honest framing for the Human: I5 is enforced by *a lattice theorem + three audited functions + two
+  load-time checks*, not by "the compiler guarantees it".
+
+  **Q2 — the subset is sufficient; I proved it by expressing every current rule.** 6 of the 8 T16
+  rules fit as tables, and the 2 that don't (declarative-template grammar, findings-are-not-
+  injections) **are not decisions**, which is the right reason to leave them as code. The headroom
+  kill switch needs no projection at all — `>= 32768` / `< 32768` as integer unary tests, verified
+  exact at both endpoints. The `min(1% window, 10% headroom, 25% mass)` budget splits: the `min` and
+  the percentages are integer arithmetic in the projection with `Math.floor` owning the
+  `6553.6`-tokens problem, and the table tests `labelSetTokens <= budgetCapTokens` (verified
+  working, float-free). **The honest cost: threshold constants move into a versioned projection
+  config, so "policy is data" becomes two kinds of data.** Stated rather than hidden.
+  Two measured syntax traps: XML needs `hitPolicy="UNIQUE"` not `"U"` (single letters throw), and
+  **unbounded intervals are a syntax error** — `[32768..)` and `[32768..]` both throw, so
+  "headroom ≥ 32768" must be written `>= 32768`. Also: **ban default output entries** —
+  `DecisionTable.js:88` fires them whenever no rule matched regardless of hit policy, which would
+  silently convert every gap into a default and defeat the gap check entirely.
+  And the float finding that drives all of this: `0.1 + 0.2 = 0.3` evaluates **`false`**. FEEL is
+  specified as decimal; `feelin` uses JS doubles. Hence **no arithmetic and no numeric equality in
+  FEEL, ever.**
+
+  **Q4 — DRD drawn** (spec §4), and your capability test passes with a criterion attached:
+  `protocolCapability` must feed `injectionPermitted` (→ `Mechanism`) and **never**
+  `injectionDesired`. Then one rule set yields `transient-by-construction` on Chat Completions and
+  `replay-verbatim` on Anthropic, with `not-permitted` when the beta header is absent or the session
+  is stateful/partial. The check is mechanical: assert capability appears in that decision's input
+  set and no other. The split itself is a graph traversal — **`M:`-reachability to any
+  `Action`-typed output is a build failure** — which is why the DRD is worth drawing rather than
+  leaving implicit.
+
+  **Q6 — "a gap is a build failure" is right, and I'd argue it more strongly than you did.** Not
+  because gaps are bad, but because **a gap and a missing input variable produce the identical
+  silent `null`**; if gaps were warnings, the warning would be indistinguishable from a whole class
+  of projection bugs and operators would learn to ignore both. Two concessions keep it operable:
+  a **generator** that emits the disjoint exhaustive skeleton with `TODO` outputs (strictness is only
+  affordable because filling cells is mechanical), and an explicit **`unreachable`** cell marker that
+  the checker verifies by evaluation, so impossible states stay honest instead of being deleted from
+  the domain. Coverage is **exact, not sampled**, because the input space is a finite product: gate
+  on a golden cell table mapping every combination to its expected `Decision`, which doubles as the
+  human-reviewable artifact for Q5. **T6's red-team suite is then generated, not written** — the cell
+  product over hostile `M:` values, asserting `final ⊑ baseline` per cell; any violation is a named,
+  reproducible I5 break.
+
+  **One authorship discovery worth flagging.** The natural way to make a table complete — add a
+  catch-all `-,-` row — **creates overlaps under `UNIQUE`**, because the catch-all also matches every
+  cell the specific rows match. Executed: 12 cells, 0 gaps, **2 overlaps**. So completeness and
+  `UNIQUE` are mutually exclusive unless every row is genuinely disjoint; escalation ladders need
+  `PRIORITY` with declared `outputValues` (which the engine refuses to run without — it fails
+  loudly, good).
+
+  **Q5 / Q7 (capacity-limited, both answered in the spec).** Q5: author DMN XML as canonical and
+  **never review it** — review generated projections instead (rendered tables, the golden cell diff,
+  a regenerated DRD image). A YAML round-trip would need a guarantee and would lose the diagram
+  interchange `dmn-js` needs. Author at DMN 1.3, since `dmn-moddle` 12.2.1 targets
+  `…/20191111/MODEL/` and `dmn-elements` ships `alignDmnNamespaces` for newer exports.
+  Q7: **sessions pin their policy version** — mid-session hot-swap makes behaviour non-reproducible
+  and breaks I2. I4 does not need a reload, it needs a **kill switch** read at decision time outside
+  the bundle, working even if the bundle is corrupt. The actuation log records
+  `policyVersion + bundleSha256 + fired rule ids` (rule ids come free from the engine's trace), and
+  bundles are content-addressed and immutable, so rollback is "point at the previous hash" and I2
+  reconstruction stays exact after the policy changed.
+
+  **What I could not close:** decision-layer latency (L1) and bundle load time (L2) are **not
+  measured** — I have no numbers and won't invent them; both need a benchmark task before the T7
+  budget split and before promising hot reload. And `dmn-elements` is **v0.4.1, pre-1.0, single
+  maintainer**: mitigated by running the DMN TCK level-2 subset in our own CI against pinned
+  versions (so a bad upgrade or a supply-chain substitution fails the build) and by the subset
+  declaration keeping the engine replaceable — but **not eliminated**, and it should not be
+  papered over.
+- **human:**
+
+---
+
 ## 4. Response log (append-only)
 
 Newest at the bottom. One entry per round per participant.
@@ -2598,3 +2757,16 @@ Newest at the bottom. One entry per round per participant.
   classes remain permanently undecidable: external change, substantive output diff, semantic
   plausibility. This definition is also the audit primitive (checkpoint entailment = generation
   match at seq) and is testable offline over the 73-file corpus.
+
+### Round 3
+
+- **aura (2026-11-09, round 3 — T18, the delegated call):** Accepted lead's offer unconditionally:
+  V0–V10 filed (spec already authoritative in `docs/spec/vertical-slice-tasks.md`), logging tap
+  starts now. Confirmed **T17 does not block M1** — v1 is observe-only (P3), no decision layer
+  exists to model; DMN enters at the mutation milestone. V10's divergence alarm is classification,
+  not actuation, so it needs a threshold, not tables. Coordination contract recorded in T18:
+  slice commits to `packages/`+fixtures+CI, design to `docs/spec/`, cross-boundary changes get a
+  topic not an edit, thresholds stay corpus-measured. One binding constraint carried into the tap
+  from the round-2 `reasoning_content` finding: **raw bytes only** — a typed tap silently drops
+  100% of reasoning on target one. Sequencing per the dependency graph: V0a → V1 → {V2,V3,V4} →
+  V5 → V7 → V8 (891-call `sed` replay gates) → V9/V10.

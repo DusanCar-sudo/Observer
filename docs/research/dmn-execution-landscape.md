@@ -50,6 +50,14 @@ also happens to be exactly the shape of every rule we currently have.
 Total install footprint is well under 1 MB of pure JavaScript, **no native binaries, no
 postinstall scripts, isomorphic and tree-shakeable** `[README]`. Contrast §3.
 
+> **Correction, measured 2026-11-09:** the *unpacked* sizes above sum to under 1 MB, but a real
+> `npm i feelin@8.2.0 dmn-elements@0.4.1 dmn-moddle@12.2.1` installs **14 packages totalling
+> 4.3 MB** (`du -sh node_modules`), the extra being `moddle`, `moddle-xml`, `saxen`,
+> `temporal-polyfill`, `min-dash`, `@lezer/*`. Still pure JavaScript with **no native binaries and
+> no postinstall scripts**, and still ~6,400× smaller than one ZEN platform binary (27.6 MB). The
+> claim that matters — no native code, no build step, forkable — is unchanged; the byte figure in
+> my first draft was wrong and is corrected here. `[MEASURED]`
+
 ### 1.1 Conformance, as reported by the package
 
 `dmn-elements` readme, verbatim `[README]`:
@@ -234,6 +242,145 @@ depend on them, only on finiteness.
 
 ---
 
+## 5A. Executed verification — the libraries were installed and run
+
+Everything above §5 was registry metadata and readmes. This section is **run output**, from
+`feelin@8.2.0`, `dmn-elements@0.4.1`, `dmn-moddle@12.2.1` installed into a scratch workspace on
+Node **v26.13.0** / npm 12.2.2 on 2026-11-09. Tagged `[MEASURED]`.
+
+### 5A.1 The §1.2 silent-null hazard is real, and there is a second one nobody flagged
+
+```
+expr                                          value  warnings
+modelVerdict > 1                        (ctx {})  null  NO_VARIABLE_FOUND
+lease = "granted" and modelVerdict = "x"         false  NO_VARIABLE_FOUND
+a.b.c                        (ctx {a:{}})         null  NO_CONTEXT_ENTRY_FOUND|NO_PROPERTY_FOUND
+a > 5                        (ctx {a:null})       null  -            ← NO WARNING
+a = null                     (ctx {a:null})       true  -
+```
+
+Two findings:
+
+1. **§1.2 confirmed by execution, not just by readme.** An unknown variable yields `null` (or
+   `false` inside a conjunction) with a warning and **no exception**. A typo'd condition silently
+   matches no rule.
+2. **NEW, and worse: a present-but-`null` input yields `null` with NO warning at all.**
+   `a > 5` with `a: null` returns `null` and an *empty* warning list. So the mitigation "promote
+   every FEEL warning to an error" **does not catch null inputs** — there is no warning to promote.
+   → The load-time synthetic context must contain every declared input **present and non-null**,
+   and the runtime projection must refuse to pass `null` into the decision layer at all (use an
+   explicit `unknown` enum member instead). This is a second, independent silent-inaction path and
+   it is invisible to the warning mechanism.
+
+### 5A.2 FEEL uses IEEE-754 doubles, not DMN decimal arithmetic
+
+```
+0.1 + 0.2                       → 0.30000000000000004
+0.1 + 0.2 = 0.3                 → false          ← equality on computed floats is broken
+contextWindow * 0.01  (1e6)     → 10000          (exact here)
+disambiguatedMass * 0.25 (8000) → 2000           (exact here)
+headroom * 0.10       (65536)   → 6553.6         ← NON-INTEGER token budget
+159202 / 24                     → 6633.416666666667
+min(1e6*0.01, 65536*0.10, 8000*0.25) → 2000     (correct)
+```
+
+The DMN specification gives FEEL arbitrary-precision decimal semantics; `feelin` uses JavaScript
+doubles. This is precisely the "arithmetic corner cases" the `dmn-elements` readme names as its
+residual TCK gap (§1.1). Some values land exactly, some do not, and **there is no way to know which
+without testing each one.**
+
+> **Hard rule for the conformance subset: no arithmetic and no numeric equality inside FEEL.**
+> All arithmetic is done in TypeScript, on integers, with explicit rounding, at the projection
+> boundary. Only integers and enum bands reach the policy layer, and only `< <= > >=` comparisons
+> are permitted on them — never `=` on a computed numeric. This *strengthens* §5's bucketing rule:
+> bucketing numerics into enum bands was justified by decidability of completeness, and it is now
+> also justified by float unsafety. One restriction, three problems solved.
+
+### 5A.3 Hit-policy semantics, executed
+
+`dmn-elements/src/decisionLogic/DecisionTable.js:86-115` switches on the **full word**, not the
+single-letter notation. Accepted values: `UNIQUE`, `ANY`, `FIRST`, `PRIORITY`, `RULE ORDER`,
+`OUTPUT ORDER`, `COLLECT`; default when undeclared is `UNIQUE`.
+
+```
+A. UNIQUE, one row matches            → "block"                       ✓
+B. UNIQUE, GAP (no row matches)       → null        ← NO ERROR
+C. UNIQUE, OVERLAP (2 rows match)     → THREW DecisionError: <dt1> UNIQUE hit policy
+                                        violated by rules <rule_1>, <rule_2>
+D. UNIQUE, input variable absent      → null        ← NO ERROR, indistinguishable from B
+E. COLLECT, overlap                   → ["block","annotate"]          ✓
+F. FIRST, overlap                     → "block"     ← overlap silently hidden
+G. PRIORITY without outputValues      → THREW DecisionError: hit policy PRIORITY requires
+                                        output values on at least one output
+H. hitPolicy="U" (single letter)      → THREW DecisionError: unsupported hit policy U
+```
+
+Four corrections to the assumptions in T17's framing:
+
+- **Overlap under `UNIQUE` is an *evaluation-time* error, not a load-time one.** It fires only when
+  a real input actually lands on the overlap. An overlap in a rarely-reached corner of the input
+  space passes every test and throws in production. So *"hit policies make ambiguity a load-time
+  error"* is **not** true of the library — it is only true if we build the load-time check ourselves
+  (§5A.4).
+- **A gap returns `null` silently.** No error, no warning. Confirms §5: no completeness analysis
+  ships. For a supervisor this is silent inaction, undetected.
+- **A missing input variable also returns `null`** — identical to a gap. So "the table is complete"
+  and "the projection supplies every input" are *the same failure signature*, and both are silent.
+- **`FIRST` hides overlaps entirely**, and **`"U"` in XML is a hard error** — DMN diagrams display
+  single letters but the XML enum needs the full word. A hand-authored table copied from a textbook
+  fails at load. It fails loudly, which is good, but it will happen.
+
+### 5A.4 The completeness checker is ~35 lines and it works
+
+Because every input is a finite enumeration (§5), completeness is cartesian-product coverage.
+Executed against a `verdict` (4 values) × `severity` (3 values) table = 12 cells:
+
+```
+[incomplete table, 2 rules]        12 cells | gaps=10 overlaps=0   → BUILD FAILURE
+[+ catch-all row  "-","-"]         12 cells | gaps=0  overlaps=2   → BUILD FAILURE
+[overlapping rules]                12 cells | gaps=6  overlaps=1   → BUILD FAILURE
+```
+
+The algorithm: enumerate the product, evaluate each cell, treat `null` as a **gap** and a
+`DecisionError /hit policy violated/` as an **overlap**. That is the whole checker.
+
+**The second line is the important discovery.** The natural way to make a decision table complete —
+add a catch-all `-,-` row — **creates overlaps under `UNIQUE`**, because the catch-all also matches
+every cell the specific rows match. So **completeness and `UNIQUE` are mutually exclusive unless
+every row is genuinely disjoint.** You cannot have a catch-all default and ambiguity detection in
+the same table. Three ways out, in order of preference:
+
+1. **`UNIQUE` with fully disjoint exhaustive rows, no catch-all.** Best: ambiguity stays a hard
+   error and completeness is checkable. Cost: the table must enumerate every combination, which for
+   6 inputs is large but machine-generatable — and a generated skeleton with `TODO` outputs fails
+   the gap check, so incompleteness is visible immediately.
+2. **`PRIORITY` with explicitly declared `outputValues`** for escalation ladders, where a specific
+   rule is *meant* to override a general one. Overlap is then intentional and resolution is
+   deterministic; our checker reports the winning rule per cell for review instead of failing.
+   Verified: `PRIORITY` refuses to run without `outputValues` (case G), so the ordering must be
+   declared — good, it fails loudly.
+3. **`FIRST` with ordered specific→general rules.** Rejected: case F shows it *silently* picks one
+   on overlap, destroying the ambiguity detection that was the reason to choose DMN.
+
+**Banned in the subset:** `FIRST` (hides overlap), `ANY` (throws on differing outputs — same problem
+as `UNIQUE` but weaker), and single-letter hit-policy notation in XML.
+
+### 5A.5 Consequence for lead's four DMN justifications
+
+| Justification | Verdict after execution |
+|---|---|
+| Hit policies make ambiguity a load-time error | **Partly false as stated.** Detection is real but *evaluation-time* and input-dependent (§5A.3). Becomes true only via our own product-enumeration check (§5A.4). |
+| Static completeness analysis detects gaps | **False for any shipped tool** (§5, §5A.3). True for us, in ~35 lines, *given* the enum restriction (§5A.4). |
+| FEEL is non-Turing-complete, so latency is enforceable | **Supported**, and `min(...)`, `count(...)`, `contains(...)` all evaluated without incident. Still `[NOT MEASURED]` for our real DRD — see L1. |
+| The fired rule *is* the explanation | **Supported.** `dmn-elements` emits a trace with `hitPolicy` and matched rule ids (`DecisionTable.js:64-68`), and its debug line names the matched rules. I2's trace requirement is met by the library. |
+
+Net: **two of the four justifications do not come free with the library and must be built by us.**
+Both are cheap, both depend on the enum-input restriction, and both are now demonstrated rather
+than asserted. The choice of DMN survives; the claim that DMN *tooling* gives us these properties
+does not.
+
+---
+
 ## 6. What is not known and must be measured
 
 | # | Unknown | Why it matters | How to resolve |
@@ -242,7 +389,7 @@ depend on them, only on finiteness.
 | L2 | **Load/compile time** for the full policy set | Determines whether hot reload (I4, Q7) is viable mid-session | Measure XML→moddle→compiled-model time; target < 50 ms so reload is free |
 | L3 | Behaviour of `dmn-elements` under a **malformed or hostile** DMN document | Policy files become an attack surface if operators can edit them | Fuzz the loader; assert it rejects rather than partially evaluates |
 | L4 | **v0.4.1 stability risk** — pre-1.0, 43 files, `github.com/zerodep/dmn-elements` `[REG]` | A safety-critical dependency on a young single-maintainer package | See §7 mitigations. Do not paper over this: it is the main risk in the recommendation. |
-| L5 | Whether `feelin`'s TCK failures touch any construct we use | The 11% residual could include something we rely on | Enumerate our constructs, run each against `feelin`'s TCK coverage doc |
+| L5 | Whether `feelin`'s TCK failures touch any construct we use | **Partly resolved by §5A.2 — and the answer is yes.** Decimal arithmetic *is* affected (`0.1 + 0.2 = 0.3` evaluates `false`), which is why arithmetic is banned from the subset. Remaining: verify the enum/comparison/unary-test constructs we *do* permit — all exercised clean in §5A, but the full permitted list should be pinned as a golden test, not re-reasoned. |
 
 ---
 
