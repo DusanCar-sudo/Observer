@@ -406,7 +406,10 @@ export function diffRuns(
     const gapsB = gapsOf(baseline)
     const gapsS = gapsOf(sut)
     let gapDiffs = 0
-    for (let k = 0; k < n && gapDiffs < MAX_GAP_DIFFS; k++) {
+    // k=0 is the gap from request-written to first body byte: it carries upload time
+    // and per-hop latency, which the TTFB axis budgets separately. The inter-chunk
+    // fidelity signal (V4b's "client must observe the same intervals") lives in k>=1.
+    for (let k = 1; k < n && gapDiffs < MAX_GAP_DIFFS; k++) {
       const gb = gapsB[k]!
       const gs = gapsS[k]!
       if (Math.abs(gs - gb) > timing.gapToleranceMs) {

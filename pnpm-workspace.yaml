@@ -1,2 +1,16 @@
 packages:
   - packages/*
+
+# pnpm 11 reads run/settings config from THIS file (not .npmrc — the .npmrc keys are
+# ignored for these, verified empirically against pnpm 11.7.0 source:
+# addSettingsFromWorkspaceManifestToConfig + default verify-deps-before-run="install").
+#
+# verifyDepsBeforeRun=false: the pre-run deps check shells out to `pnpm install`
+# WITHOUT the caller's --store-dir override; on the dev sandbox the default store
+# (~/.local/share/pnpm) is not writable, so the check dies with ERR_SQLITE_ERROR
+# before any script runs. CI installs explicitly (frozen lockfile) before scripts.
+verifyDepsBeforeRun: false
+
+# storeDir: relative paths fail with ERR_SQLITE_ERROR (pnpm 11.7.0 resolves them
+# against the wrong base), so the store must be passed per-invocation as an absolute
+# path: pnpm install --store-dir "$PWD/.pnpm-store". Kept documented here and in .npmrc.
