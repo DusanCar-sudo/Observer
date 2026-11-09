@@ -176,7 +176,28 @@
     "### 6.4 CI gates, in order of cost",
     "## Q5 — Authoring format and reviewability (brief; capacity-limited)",
     "## Q7 — Versioning and hot reload (brief; capacity-limited)",
-    "## Open items I could not close this round"
+    "## Open items I could not close this round",
+    "## Appendix A — Input domains, cardinalities, and what they make decidable",
+    "### A.1 The domains",
+    "### A.2 Integer inputs, and how they stay enumerable",
+    "### A.3 Per-table products — 195 cells total",
+    "### A.4 Global completeness is not decidable, and should not be claimed",
+    "### A.5 What changes if a domain grows"
+  ],
+  "docs/spec/dmn-benchmark-plan.md": [
+    "# DMN Decision-Layer Benchmark — Methodology",
+    "## 1. Questions, and what would answer them",
+    "## 2. Budget, and the slice the decision layer gets",
+    "## 3. Workload",
+    "### 3.1 The DRD under test",
+    "### 3.2 The evaluation contexts",
+    "### 3.3 What is compiled once",
+    "## 4. Instrumentation",
+    "## 5. Load-time measurements",
+    "## 6. Prediction made in advance, so it can be falsified",
+    "## 7. Pass / fail",
+    "## 8. What this benchmark cannot measure",
+    "## 9. Anti-gaming rules"
   ],
   "docs/spec/vertical-slice-tasks.md": [
     "# Vertical Slice — Task Breakdown (v1)",
@@ -244,5 +265,9 @@
     "### Things we got wrong, and how we found out",
     "## Layout",
     "## Repository conventions"
+  ],
+  "fixtures/derived/PROVENANCE.md": [
+    "# Provenance — fixtures/derived",
+    "## dsh-qwen-40-tools.header.json"
   ]
 }

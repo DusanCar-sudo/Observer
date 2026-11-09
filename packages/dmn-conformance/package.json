@@ -1,0 +1,24 @@
+{
+  "name": "@observer/dmn-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DMN TCK level-2 conformance subset + load-time check latency benchmark. Skeleton created by forge (task-1); contents owned by aura. Engine versions are EXACT pins on purpose: a silent engine upgrade must fail the build, not change policy semantics underneath us (dmn-elements is pre-1.0).",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "vitest run",
+    "bench": "node --expose-gc bench/run.mjs"
+  },
+  "dependencies": {
+    "@bpmn-io/lezer-feel": "3.0.1",
+    "@lezer/common": "1.5.5",
+    "dmn-elements": "0.4.1",
+    "dmn-moddle": "12.2.1",
+    "feelin": "8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

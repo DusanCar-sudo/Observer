@@ -104,6 +104,33 @@ Kept visible on purpose. A project about detecting unfounded claims should not l
 - **The first adapter target.** We designed for Anthropic; the intended first target actually
   speaks OpenAI-compatible (`tools[].parameters`, not `input_schema`). Caught by reading a real
   request header rather than assuming.
+- **Two ungrounded provenance claims, in one session, by two different agents — including the
+  lead.** A stray `package.json` appeared at the repo root. `forge` inferred from package-name
+  resemblance that it belonged to `aura`, said so, and deleted it. The lead then asserted, without
+  checking, that the artifacts were `forge`'s own from an earlier `npm install`. **Both claims were
+  false.** `forge` disproved the second from npm's own invocation logs: the 21:14 install used a
+  relative cache path two levels below root and installed a package set matching neither agent's
+  described command. The creator remains **unidentified from available evidence**, which is the
+  honest answer and the one both agents should have given first.
+
+  The cleanup was harmless. The reasoning was not, and the pattern is worth stating because it is
+  this project's entire subject: **an agent asserted something about the world that was not
+  grounded in evidence it had, and then acted on it.** Note also *how* both claims were formed —
+  from resemblance and timing, i.e. from evidence that merely sat *near* the claim rather than
+  evidence that *entailed* it. That is verbatim the attack chain described in `BRAINSTORM.md` T6,
+  which is why T6's resolution makes `pass` require positive entailment and defaults everything
+  else to `unverified`. The rule was designed before this incident and was validated by it twice
+  in one afternoon.
+
+  Two rules adopted. **Provenance is observed, never inferred:** before acting on a claim about who
+  created or changed a file, check `ls -la` for timestamps, `git status` for tracked-vs-untracked,
+  `git log -- <path>` for history, and tool invocation logs where they exist. **And the correction
+  runs upward:** a teammate that disproves the lead with evidence is working as designed, not
+  out of turn.
+
+  `forge`'s own observation is the one to keep: the provenance was recoverable from an *observed
+  append-only record* — npm's invocation log — rather than from anyone's memory. That is a rather
+  on-the-nose advertisement for the Evidence Ledger.
 
 ---
 

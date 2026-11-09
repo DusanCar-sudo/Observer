@@ -557,4 +557,133 @@ mechanism, though I did not exercise `alignDmnNamespaces` itself. `[ASSUMPTION]`
 | D2 | Load/compile time for the full bundle | Not measured (Landscape L2). Blocks the Q7 hot-reload promise. |
 | D3 | `dmn-elements` v0.4.1 stability risk | Pre-1.0, 43 files, single maintainer. Mitigated by the TCK-in-CI gate (§6.4 item 7) and by the subset declaration keeping the engine replaceable (Landscape §7 mitigation 5). **Not eliminated.** |
 | D4 | Whether `alignDmnNamespaces` handles DMN 1.4/1.5 boxed-expression XML | Not exercised. Moot in v1 — boxed expressions are banned (§2.1). |
-| D5 | Exact cardinalities of every input enum | Needed to size the cartesian product and confirm it stays enumerable. Six inputs at 3–5 values each is a few thousand cells; if any input grows to a large domain the product check needs partitioning. |
+| D5 | Exact cardinalities of every input enum | **Resolved — see Appendix A.** Per-table products total 195 cells, so the completeness check is cheap; but it is only enumerable **per decision table**, never globally. |
+| D6 | Whether load-time validation is affordable, or must move to build time | Depends on B5c in `dmn-benchmark-plan.md`. Appendix A's 195-cell figure makes load-time validation *plausible*, which is the opposite of the prediction in the benchmark plan §6 — the benchmark decides. |
+
+---
+
+## Appendix A — Input domains, cardinalities, and what they make decidable
+
+Resolves D5. This is also a prerequisite for the benchmark: the size of the cartesian product
+determines whether the gap/overlap check (`dmn-benchmark-plan.md` B5c) can run at load time or must
+move to build time.
+
+### A.1 The domains
+
+One correction to §Q3 first, because it changes the shape of the tables: **`⊥` is not a verdict
+value.** T12's lattice mixed "unknown" into the verdict enum. Splitting it out is cleaner and is
+what Hole 3 already implies — `checkerStatus` is a *deterministic* fact about our own execution, so
+it belongs in the conferral graph, while `verdict` describes the claim:
+
+```
+verdict            { grounded, contradicted, unverified, not-a-claim }              4
+evidenceClass      { wire-observed, ledger-corroborated, filesystem-only,
+                     config, none }                                                 5
+severity           { info, low, high, critical }                                    4
+checkerStatus      { ok, errored, timed-out, not-configured }                       4
+leaseState         { granted, withheld }                                            2
+protocolCapability { openai-chat-stateless, anthropic-messages,
+                     openai-responses-stateful, unknown }                           4
+betaHeaderAccepted { yes, no, not-applicable }                                      3
+budgetStatus       { within, exceeds, unknown }                                     3
+headroomBand       { above-killswitch, below-killswitch }                           2
+labelSetStatus     { new, changed, unchanged }                                      3
+disclosureState    { not-emitted, emitted }                                         2
+flipSignal         { none, canary-miss, attestation-missing,
+                     honeypot-hit, coverage-anomaly }                               5
+partialTranscript  { false, true }                                                  2
+withinBudget       { true, false }     ← two-variable integer comparison, verified  2
+replayWithinCap    { true, false }                                                  2
+correctionsBelowCap{ true, false }                                                  2
+── model-derived (reduction subgraph only) ──
+judgeVerdict       { escalate, no-opinion }   ← monotone: cannot confer (I5)        2
+judgeConfidence    { low, high }                                                    2
+escalationSignal   { none, mild, strong }                                           3
+```
+
+### A.2 Integer inputs, and how they stay enumerable
+
+`headroomRemaining`, `labelSetTokens`, `budgetCapTokens`, `replayedInjectionTokens`,
+`permanentCorrections` are integers, and an unbounded integer domain is **not** enumerable — so a
+naive reading of "every input is a finite enumeration" would exclude them and push the thresholds
+back into code.
+
+**Resolution: derive the bands from the literals the table itself uses.** Collect every numeric
+literal appearing in that input's cells, sort them, and they induce a partition of the domain into
+intervals plus boundary points. For the headroom kill switch the cells are `>= 32768` and `< 32768`,
+so the partition is `{ [min,32768), 32768, (32768,max] }` — three probe values, and enumerating them
+proves the table complete over the whole integer line.
+
+This is strictly better than hand-authored band enums: the bands cannot drift from the rules, because
+they are *computed from* the rules. A new threshold literal in a cell automatically refines the
+partition. It also means the threshold `32768` stays in the table as reviewable policy data, which is
+what T16 rule 3 wanted.
+
+Two-variable comparisons (`labelSetTokens <= budgetCapTokens`) are already boolean by the time they
+reach the table — verified working in Landscape §5A — so their domain is `{true, false}` and the
+arithmetic that produced them lives in the projection. That is the honest split stated in Q2: **the
+comparison is policy data, the operands' derivation is code.**
+
+### A.3 Per-table products — 195 cells total
+
+Completeness is checked **per decision table**, over only the inputs that table declares:
+
+| Decision | Inputs | Product |
+|---|---|---|
+| `groundingBaseline` | verdict × evidenceClass × severity | 4·5·4 = **80** |
+| `checkerFloor` | checkerStatus | **4** |
+| `budgetAdmission` | budgetStatus × leaseState × withinBudget × headroomBand | 3·2·2·2 = **24** |
+| `replayAdmission` | replayWithinCap × protocolCapability | 2·4 = **8** |
+| `correctionCap` | correctionsBelowCap × protocolCapability | 2·4 = **8** |
+| `injectionPermitted` | protocolCapability × betaHeaderAccepted × leaseState × partialTranscript | 4·3·2·2 = **48** |
+| `injectionCadence` | labelSetStatus × disclosureState | 3·2 = **6** |
+| `flipResponse` | flipSignal × leaseState | 5·2 = **10** |
+| `judgeReduction` | judgeVerdict × judgeConfidence | 2·2 = **4** |
+| `escalationReduce` | escalationSignal | **3** |
+| | | **195** |
+
+195 evaluations per bundle. At 1 ms each that is 0.2 s; at 0.05 ms it is 10 ms. **So the prediction in
+`dmn-benchmark-plan.md` §6 — that B5c exceeds any hot-reload budget by one to two orders of
+magnitude — is probably wrong in absolute terms**, and load-time validation may well be affordable.
+I am recording that here *before* measuring, so the prediction is falsifiable rather than quietly
+dropped: §6 stands as written, and B5c decides.
+
+### A.4 Global completeness is not decidable, and should not be claimed
+
+The product over all 19 inputs is ≈ 4·5·4·4·2·4·3·3·2·3·2·5·2·2·2·2·2·2·3 ≈ **10¹¹** — not
+enumerable, and mostly unreachable combinations anyway (e.g. `protocolCapability =
+openai-chat-stateless` with `betaHeaderAccepted = yes`).
+
+So the guarantee we can actually make is:
+
+> **Every decision table is complete and unambiguous over its own declared inputs.**
+
+That is a real and checkable property, and it is the one that prevents silent inaction — a gap in a
+table is the failure we fear. What we **cannot** claim is that the DRD as a whole handles every
+conceivable input combination; that would require composing the tables and reasoning about
+reachability across the graph, which is a different (and much harder) problem.
+
+Two consequences worth stating so nobody over-trusts the CI gate:
+
+1. **A missing input requirement in the DRD is not caught by per-table completeness.** If a table
+   simply fails to declare an input it should have considered, every one of its cells is still
+   "complete". The defence is review of the DRD plus the golden cell table (§6.3), not the checker.
+2. **Cross-table contradictions are not caught either.** Two tables can each be complete and still
+   combine incoherently — though for the I5 property specifically this is covered structurally, by
+   the `meet` lattice in Q3 Hole 2 rather than by any completeness argument. That is worth noting
+   because it is the reason the lattice matters: **completeness checking cannot give us I5, and
+   anyone who expects it to will be disappointed.**
+
+### A.5 What changes if a domain grows
+
+The product is multiplicative, so the tables to watch are `groundingBaseline` (80) and
+`injectionPermitted` (48). Adding one value to `evidenceClass` costs +16 cells; adding a fifth
+`protocolCapability` costs +16. Neither is a problem.
+
+The real risk is **adding a sixth input to `groundingBaseline`**: at 5 values that is +400 cells, and
+the golden cell table (§6.3) grows with it — which is the point, since the golden table is what a
+human reviews, but a 480-row review artifact stops getting read. **Rule: no decision table may
+declare more than five inputs.** A sixth input means the decision should be split into two tables
+composed in the DRD, which keeps each product small *and* keeps each reviewable. That is a
+constraint on the model, not on the tooling, and it is worth adopting now while there are ten tables
+rather than after there are forty.

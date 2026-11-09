@@ -1,0 +1,16 @@
+{
+  "name": "observer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Observer — a standalone supervisory runtime for AI agents. Milestone 1: observe-only vertical slice (DSH -> qwen, OpenAI-compatible Chat Completions).",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "check:docs": "node tools/check-doc-headings.mjs"
+  }
+}

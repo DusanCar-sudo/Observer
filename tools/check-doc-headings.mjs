@@ -35,7 +35,7 @@ const ROOT = new URL('..', import.meta.url).pathname
 const MANIFEST = join(ROOT, 'tools', 'doc-headings.json')
 const SCAN_DIRS = ['docs', '.']
 const SCAN_EXTENSIONS = new Set(['.md'])
-const SKIP = new Set(['node_modules', '.git', '.verify', '.study-tmp', 'packages', 'dist'])
+const SKIP = new Set(['node_modules', '.git', '.verify', '.study-tmp', '.scratch', '.npmcache', '.pnpm-store', 'packages', 'dist'])
 
 const UPDATE = process.argv.includes('--update')
 

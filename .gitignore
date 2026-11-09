@@ -1,6 +1,10 @@
 node_modules/
 dist/
 build/
+# Package-manager caches must live inside the workspace: the dev sandbox mounts
+# ~/.npm read-only (EROFS), and .npmrc pins the pnpm store here for the same reason.
+.npmcache/
+.pnpm-store/
 *.tsbuildinfo
 .dsh-state/
 observer-data/
@@ -10,6 +14,9 @@ observer-data/
 *.log
 coverage/
 .DS_Store
+# Standardised scratch convention (lead, 2026-11-09): .scratch/<task>/ at the repo root.
+# .study-tmp/ and .verify/ are deprecated predecessors, kept ignored so stale dirs stay quiet.
+.scratch/
 .study-tmp/
 __pycache__/
 .verify/
