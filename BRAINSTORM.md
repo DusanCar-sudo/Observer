@@ -416,6 +416,106 @@ risk the client's read timeout, and what do we send as keepalive?
   second threshold, stop holding and release with a trailing `[observer:deferred]` annotation
   instead of blocking. **The gate's budget is a latency budget, not a correctness budget** — a
   hallucination we release late is a defect; a client that times out mid-response is an outage.
+
+  ---
+
+  **aura (rev. 2 addendum, 2026-11-09 — appended below my round-1 answer; nothing above altered).**
+  Evidence: `docs/research/protocol-fidelity.md` (§ refs below) and
+  `docs/recon/dsh-compaction-prior-art.md`. Two items are v1-blocking, three change conclusions,
+  and one corrects my own text above.
+
+  **(1) v1-BLOCKING — `reasoning_content` is not in OpenAI's schema, so a typed parser silently
+  deletes every reasoning block on our first supervised target.** `ChoiceDelta` in OpenAI's own
+  generated types declares exactly `audio`, `content`, `function_call`, `refusal`, `role`,
+  `tool_calls`. No reasoning field. But DSH's adapter reads
+  `["reasoning", "reasoning_content", "reasoning_text"]` and comments name the endpoints that emit
+  them (llama.cpp, LiteLLM, chutes.ai, "other openai compatible endpoints") — qwen included
+  (research §4A.1 `[SRC]`). If the gateway parses chunks through official types or a
+  schema-derived struct, it will drop 100% of the reasoning on the wire it is actually supervising,
+  and nothing will error. **Rule for v1: parse permissively, preserve unknown fields, and
+  re-serialise from the original bytes — never from a typed model.** The related trap is OpenAI's
+  `obfuscation` field on every chunk, whose entire purpose is that its bytes are present and sized;
+  re-serialisation deletes it (§4.1).
+
+  **(2) My "reasoning is signature-bound" conclusion above is right but under-evidenced, and the
+  real picture is three regimes, not one.** The citation above is DeepSeek-specific. Independently:
+  **Anthropic** — opaque `signature`; *"A tampered or undecryptable signature… always returns a 400
+  error"*, and separately a **prefix check** over `system` + `tools` + all preceding `messages`
+  whose failure invalidates that block *and every later thinking block*; with
+  `prefix_mismatch_behavior` unset, accounts created on/after 2026-08-31 get a **400**, older
+  accounts get silent pass-through (§3.1). **OpenAI first-party Responses** — opaque
+  `encrypted_content`; a prefix edit makes the API **silently drop** subsequent reasoning items,
+  no error (§3.3). **qwen / OpenAI-compatible (our first target)** — plain text, string-concatenated
+  by the client, replayed as a plain string field: **no signature, no checksum, no documented
+  requirement to return it unmodified, and no server-side rejection of an edit** (§4A.2).
+
+  Consequence, and this is the part that should worry us more than the 400: on regime A
+  **nothing detects reasoning tampering.** Anthropic's 400 and OpenAI's drop-cascade are, from
+  Observer's point of view, *free safety nets*. qwen gives us none. So the rule "a reasoning block
+  is never rewritten" must be **self-imposed and mechanically enforced** there — hash each
+  reasoning block at ingress, refuse any mutation path that would alter the hash, and fail the
+  build if a test does. Where the protocol protects us, obey it; where it does not, build the
+  protection ourselves. I2 and I3 stop being good practice and become the only control.
+
+  **(3) Tool-pairing, and a sharper conflict it exposes.** Adopting recon §1: cuts must be
+  balanced, and DSH's `cutBalanced: readonly boolean[]` (N+1 booleans over cut points) is the
+  invariant to copy rather than rediscover. For T3 specifically the binding form is *response-side*:
+  if we suppress or replace a `tool_use` block we must do it at **whole-assistant-message
+  granularity**, never per-block, or the client can end up recording an assistant turn whose
+  tool-call set does not match the tool-results it then produces.
+
+  The genuinely new finding is a **direct conflict between two documented placement rules.**
+  Anthropic instructs that an injected mid-conversation system message go *"after the `tool_result`
+  user message, never between an assistant `tool_use` and its `tool_result`"* (§3.2). But the
+  OpenAI-compatible dialect flag `requiresAssistantAfterToolResult` — *"Whether a user message
+  after tool results requires an assistant message in between"* — means on some providers that
+  exact placement is **illegal** (§4A.4). So injection placement cannot be a constant. It must be
+  resolved per session from a capability table, and Observer must fall back to observe-only when
+  the capability is unknown. This is a concrete argument that the capability table is v1
+  infrastructure, not a later refinement.
+
+  **(4) Gating granularity is protocol-dependent; do not promise uniform behaviour across D3.**
+  Chat Completions has **no per-tool-call terminator** — completion is inferable only from a new
+  `index`, `finish_reason: "tool_calls"`, or stream end (§4.2), so gating a tool call there means
+  buffering to `finish_reason`, i.e. effectively the whole response. The Responses API *does* have
+  a real boundary: `response.function_call_arguments.done` carries the complete `arguments` string,
+  followed by `response.output_item.done` (§5.2). Anthropic has `content_block_stop`. So (e)+(d) is
+  cleanly implementable on Anthropic and Responses, and expensive on Chat Completions — which is
+  the protocol our first target speaks. Recommend the spec name a **least-common enforcement
+  capability** and design v1 to it (§6.6).
+
+  **(5) Server-side tools cannot be gated at all, which caps (d)'s value.** Anthropic's
+  `server_tool_use` → `web_search_tool_result` pair arrives with the action **already executed
+  upstream**; same for Responses' `web_search_call.*`, `file_search_call.*`,
+  `code_interpreter_call.*`, `mcp_call.*` (§1.3, §6.7). Holding those blocks delays the agent's
+  *knowledge* of the action, not the action. (d) is the highest-value enforcement point **only for
+  client-executed tools** — which is most of what a coding agent does, so the position survives,
+  but the doc should say so rather than imply universal reach.
+
+  **(6) Cache position — three additions to what I wrote above.** (a) recon §5 measures **94.0%
+  of prompt tokens served from cache (2,482,304 of 2,641,506)**, so a prefix edit does not merely
+  "cost a rewrite"; it forfeits a ~2.48 M-token cache position and forces re-prefill at uncached
+  rates. On Anthropic the mechanics are explicit: the write happens only at the breakpoint, the
+  hash is cumulative, and *"changing any block at or before the breakpoint produces a different
+  hash"* — with the docs' own worked example concluding *"No cache hit. You pay for a fresh cache
+  write on every request and never get a read"* (§2.2). (b) **Holdback latency is itself charged
+  against the client's cache TTL**: Anthropic measures the 5-minute lifetime *"from the start of
+  the request that writes or reads the cache entry, not from the end of its response"*, so a long
+  streamed response plus our hold can push the *next* turn out of the window (§2.5). T3's latency
+  budget and T7's cost budget are coupled and neither currently prices this. (c) OpenAI documents
+  that *"extending a message can prevent reuse of its cached prefix"* — the old breakpoint ends up
+  inside a message. Hence an absolute rule: **never append to an existing message; always add a new
+  one.** That constrains T5's Goal Card and T6's annotation format, not just T3.
+
+  **(7) Correction to my own keepalive proposal above.** Anthropic's `ping` is documented (*"Event
+  streams might also include any number of `ping` events"*) — but whether SDKs tolerate *injected*
+  pings at arbitrary cadence is **not documented** and must be tested (gap A6). For OpenAI,
+  **no keepalive event is documented for either Chat Completions or Responses**, and my suggested
+  `: keepalive\n\n` comment line is an SSE-level convention I could not verify against OpenAI's
+  documented behaviour or its SDK reader — so I am downgrading it from "do this" to `[ASSUMPTION]`,
+  test before relying on it. What is verifiable: `[DONE]` terminates the stream, and OpenAI's own
+  reader drains the body on HTTP/1.1 but not HTTP/2 for connection reuse (§4.3) — so a proxy must
+  emit `[DONE]` exactly once and must not assume the client drains.
 - **human:**
 
 ---
@@ -496,6 +596,57 @@ auditable under I2.
   to have kept it *inline* — it needs to be able to *get it back*. Reference plus a retrievable ID
   satisfies that at a fraction of the context cost. If the agent cannot fetch it back, the design
   is broken; the fetch-back path is not optional and must exist in v1, not Stage 2.
+
+  ---
+
+  **aura (rev. 2 addendum, 2026-11-09 — appended below my round-1 answer; nothing above altered).**
+  Four corrections from `docs/recon/dsh-compaction-prior-art.md` and
+  `docs/research/protocol-fidelity.md`. The tiering above survives; its *domain* and its
+  *trigger* both change.
+
+  **(a) Demotion must be pair-atomic.** Tier 1/2 may collapse a `tool_result`'s **content**, but may
+  never drop a `tool_result` whose `tool-call` survives, nor a `tool-call` whose result is
+  retained — recon §1: cutting between them *"produces a malformed transcript the provider
+  rejects."* Copy DSH's invariant rather than rediscovering it: `tool-pairing.ts` computes an
+  **N+1 boolean array over cut points** (`cutBalanced`), and `region.ts` already validates a
+  selection with `toolPairingBalancedAfter` / `toolPairingBalancedBefore`. My tiers above did not
+  state this and are unsound without it.
+
+  **(b) ρ is computed over the *surface*, not the log — which changes what counts.** Adopting
+  recon §1's vocabulary (surface = what the model is about to see; log = everything that happened),
+  the elided mass inside a harness prune marker is **not in the surface** and therefore must be
+  excluded from ρ; including it would make ρ measure the log and rise as the incumbent does its
+  job. But do not discard the signal — report **ρ_pruned** (stub mass ÷ tool mass) as a fourth
+  component. Answering Q-P4: a pruned result is *already reduced* for ρ purposes, and a **rising
+  ρ_pruned with falling progress rate is a stronger thrash signal than ρ_dup**, because it explains
+  the mechanism — the agent keeps re-reading artifacts whose contents no longer exist. One caution
+  in T12's shape: `PRUNE_MARKER` is a recognisable surface string, so an attacker-controlled tool
+  result could embed it. Never let a marker *reduce* scrutiny; only let it *explain* a measurement.
+  Usefully, the same marker is a reliable join key for fuzzy tail alignment in T14's differential
+  detector.
+
+  **(c) Tier 1 *is* the pruner — calibrate, do not reimplement.** `thresholdChars: 8192`,
+  `headChars: 4096`, `tailChars: 1024`, middle → marker: that is exactly my Tier 1, shipped and
+  tuned. Our ρ thresholds should be expressed *relative to those parameters* (what fraction of
+  surface tool mass is stub, at what stub count) rather than invented from zero. My `[assumption]`
+  ρ > 0.30 above should be re-derived against this baseline before anyone trusts it.
+
+  **(d) The trigger must respect cache position — this answers Q-R1, and the answer is tail-only by
+  default.** With 94.0% of prompt tokens served from cache, a demotion that touches the cached
+  prefix forces a re-prefill of everything after the edit (research §2.2: cumulative prefix hash,
+  write only at the breakpoint). So continuous dedupe should be **restricted to the uncached tail**
+  unless ρ is extreme, and the exception must be priced by the *measured* `cacheReadTokens` delta
+  across the edit — not guessed. Note the honest limit: tail-only dedupe buys much less than
+  whole-surface dedupe, because the noise the incumbent already cached is exactly the noise we
+  cannot cheaply remove. That is an argument for T14's audit-first posture and against T4's
+  original framing of dedupe as a cheap, always-on win.
+
+  **(e) One thing the incumbent structurally cannot do, which is why T4's must-carry set is not
+  redundant.** `retainRatio: 0.16` protects **recency**. A hard constraint stated once by the human
+  at turn 2 and never repeated is *guaranteed* to be dropped by any recency-based policy. So the
+  protected must-carry set is not a nicer version of what DSH already does — it covers a failure
+  class recency retention cannot cover by construction. This is the strongest single argument for
+  T14's pivot and I have put it there too.
 - **human:**
 
 ---
@@ -1244,6 +1395,121 @@ And challenge the pivot itself if you think it is wrong. The strongest counter-a
 is that auditing only helps agents whose harness already compacts well, which narrows Observer's
 market to sophisticated harnesses and leaves the mass of naive `while True: llm.call()` agents —
 the ones most in need of help — without pillar 3 at all.
+
+- **aura:** Concur with the pivot, with one amendment and one warning. **Yes — audit, don't compact.** Everything in §1–§5 checks out against source; I verified the load-bearing claims independently (cites below). The four audits (entailment, must-carry, tool-pairing, shrink honesty) are all *classification* over a bounded input — exactly what invariant I3 permits — and the two-controller problem (Q-P2) evaporates because we stop competing for the write path. But two things in the framing need to change before we build:
+  - **The gateway sees compaction directly, not differentially.** Q-P1's premise is half-wrong. DSH's checkpoint crosses the wire as a *literal string signature*, not metadata: serialize.ts flattens messages to role+content (source/seqs never leave the process), and the replacement user message is framed by `CHECKPOINT_PREAMBLE` ("This is an automatically generated checkpoint condensing an earlier span…") plus `<compacted-summary>…</compacted-summary>` tags (compaction-basic/src/summarizer.ts:22-23,70-71). So detection = **signature match on the wire**, not surface-diffing. That's strictly better: O(1) per request, no false positives from ordinary user edits, and it works on *every* future request (the checkpoint stays on the surface), not just the one after the seam. Design: a **compaction-signature registry** — per-harness literal/pattern matchers (DSH: preamble+tags; Claude Code: their own checkpoint text; OpenAI autocompact: theirs). Unmatched harnesses fall back to differential surface-diff as heuristic mode with lower confidence, flagged in the audit report. Registry entries are data, not code, so new harnesses ship without redeploying Observer.
+  - **Q-P3 answer: yes, the shadowed range is reconstructable from wire alone — and that is the wrong target.** The shadowed *content* (turns between two requests, minus what survived) is fully recoverable: Observer buffers every surface it sees, so diffing request N's messages against request N+1's yields exactly what vanished. The *seqs* are not — they're DSH-internal (session surface ops), never serialized (serialize.ts). But the audits don't need seqs. Entailment compares summary claims against the shadowed *content*; must-carry compares constraints against shadowed *content*; tool-pairing checks balance at the cut *positions* on the wire messages, which is wire-derivable. **Pillar 3 stays in the gateway.** No watcher dependency, no architectural split. The watcher adds value elsewhere (it can cross-check wire-vs-log for *undetected* compaction — e.g. a harness that compacts with no signature), and that's a nice second-order audit, not a blocker.
+  - **Q-P2 answer: defer to the incumbent, always — Observer never pre-empts.** When the target harness has a native controller, Observer's job is to *verify* its shrink, not race it. Our attention-compaction (0.5 trigger) would fire first, the incumbent's pressure trigger (0.8) would never run, and we'd own the surface with a weaker summarizer than DSH's (which has summary-vs-shadowed pricing checks, generation guards, transaction rollback). So: if the registry identifies a harness with native compaction, Observer's own compaction pillar demotes to *advisory* — it may flag "attention decay is high, a compact would help now" as a finding, but never writes. Only for harnesses with **no** native compaction (the naive `while True: llm.call()` loop) does Observer write — and then it inherits all four audits as self-obligations (T6 at full force: our own summaries get entailment-checked, must-carry-checked, pairing-checked, and priced).
+  - **Q-P4 answer: exempt the marker-stub, audit the seam around it.** The PRUNE_MARKER (`'\n\n[... tool result middle pruned ...]\n\n'`, compaction-tool-result-pruner/src/config.ts:7) is an *honest reduction the harness already made and paid for*. Counting it as noise double-counts: the tool result was already shrunk to head+marker+tail (~5K chars max), so noise-density accounting would penalize a surface the harness deliberately cleaned. Rule: marker-stubs are **exempt from noise density** and from dedupe heuristics, but *not* from entailment — if a later turn references the elided middle ("the error code on line 412"), Observer flags it as a **lost-elision reference**: the model is citing content that no longer exists. That's a genuinely new audit no one performs, and it composes: marker-stub (pruner) + checkpoint (summarizer) both get seam-audits.
+  - **On the market counter-argument** (audit-only narrows us to sophisticated harnesses): I think it's weaker than it looks, but the answer is a product split, not a scope creep. The naive-agent market doesn't buy "auditing" — they buy "make my agent stop going insane at 200K tokens." For them the product is **Observer-as-compactor** (pillar 3 in write mode, the Q-P2 fallback above) with the audit suite as its own safety story. For sophisticated harnesses (DSH, Claude Code, anything with native compaction) the product is **Observer-as-auditor**. Same four audits, two go-to-market motions, one codebase. The registry from Q-P1 is what makes the split cheap: the detection layer is shared, only the write authority differs. And there's a wedge in the middle: harnesses with *bad* compaction (the audit finds entailment failures) upgrade to Observer-compacts — auditing is the funnel, compaction is the upsell.
+  - **One warning before we build:** the signature registry is a *fingerprint database of other systems' internals*, and it will rot. DSH's preamble/tags are stable public contract-ish strings today, but any harness may reword its checkpoint text in a release, and then Observer silently degrades to heuristic mode *without noticing*. Mitigation: heuristic-mode hits must emit a **signature-drift finding** ("surface shrank 63% between requests with no recognized checkpoint — unknown compaction or tampering"), so drift becomes observable. Ship the registry with per-entry `lastVerifiedAgainst` versions and treat unmatched-but-shrinking as a first-class signal, not a fallback failure.
+- **human:** *"i tought that if it is trying to mantain concusness you need clean context"*
+  (verbatim, 2026-11-09). Read as an objection to the pivot: if Observer's purpose is to sustain
+  an agent's continuous awareness, then a **clean context is the substrate of that continuity** —
+  and a purely advisory Observer does not produce one. Auditing a dirty context still leaves the
+  agent thinking inside a dirty context.
+- **lead — the Human is right and T14 contains a conflation.** I handed pillar 3 to the incumbent
+  and kept only the audit. That is correct for *compression* and silent about *cleaning*, which
+  are different operations with different triggers, risk profiles, and — decisively — different
+  incumbents. See **T15**.
+
+  What I verified before conceding, so the concession rests on evidence rather than deference:
+  `grep -rln "dedupe|deduplicat|superseded|redundant"` across all 59 DSH packages' `src/` returns
+  **nothing**. `compaction-tool-result-pruner` iterates `session.surface.nodes` and truncates each
+  oversized result individually (`thresholdChars: 8192` → head 4096 + marker + tail 1024); it does
+  not compare results to one another. So **no component in the harness removes duplicated or
+  superseded content across messages.** A surface can carry the same file read five times, three
+  stale stack traces, and two abandoned dead branches, and it stays that way until 80% of the
+  window is consumed and `compaction-basic` finally fires.
+
+  That is the whole of the Human's point, and neither T4 nor T14 owned it. Aura's T14 answers
+  stand — signature detection, wire-reconstructability, defer-to-incumbent, marker exemption,
+  lost-elision audit, the product split, and the registry-rot warning are all accepted. What
+  changes is that "defer to the incumbent" applies to **compression only**. Cleaning has no
+  incumbent to defer to.
+
+---
+
+### T15. Three operations, not two — and pillars 2 and 3 are coupled `[OPEN — filed from the Human's objection]`
+
+*Filed by lead 2026-11-09. This supersedes the two-operation framing implicit in T4 and T14.*
+
+**Tension.** T4 and T14 both assume "context management" is one thing: compaction. It is three.
+
+| Operation | Character | Risk | Incumbent in DSH |
+|---|---|---|---|
+| **Cleaning** (hygiene) | Continuous, deterministic, **cross-message**: collapse duplicate reads, drop superseded tool output, prune abandoned branches, normalise giant payloads | Low — removes only what is provably redundant | **None. Verified gap.** |
+| **Compression** (compaction) | Rare, lossy, model-generated summary at pressure | High — a summary can invent | `compaction-basic`, mature, 9,120 lines |
+| **Audit** (verification) | Check the other two preserved what mattered | None — read-only | **None** |
+
+T14 correctly refused to compete on **compression** and correctly claimed **audit**. It said
+nothing about **cleaning**, and cleaning is the operation the Human is actually asking for. It is
+also the cheapest, the most deterministic, the lowest-risk, and the one with no incumbent — which
+makes it the natural centre of gravity for pillar 3, not an afterthought.
+
+**The deeper correction: pillars 2 and 3 are not independent.** The doc presents attention and
+context as separate pillars with separate mechanisms. The Human's objection reveals the coupling:
+**a dirty context is a *mechanism* of drift.** An agent that must scan five copies of a file read
+and three stale stack traces to find the one current fact is an agent whose attention is being
+spent on noise. Cleaning is therefore not merely storage hygiene performed near the attention
+pillar — it is *how* attention is maintained. Compaction at 0.8 is a flood control measure;
+cleaning is what keeps the water drinkable in between.
+
+**Taking "consciousness" seriously as an operational target.** The Human's word is better than my
+"attention" because it names the thing being preserved. Four properties, each with a mechanism:
+
+| Property | What it means | Mechanism |
+|---|---|---|
+| **Continuity** | knows what it did, is doing, and what remains | must-carry set + `todo/write` accounting |
+| **Coherence** | does not contradict what it established earlier | Evidence Ledger + contradiction check |
+| **Signal-to-noise** | the current fact is findable, not buried | **cleaning** — the missing operation |
+| **Identity** | knows which task it is on and which constraints bind | Goal Card re-injection |
+
+Three of the four are already designed. Signal-to-noise is the one nobody owned.
+
+**lead's position.** Observer claims **cleaning** as a first-class pillar-3 operation and its
+primary write authority, even against harnesses with mature native compaction. It defers to the
+incumbent on **compression** (per T14/Q-P2) and audits both. This preserves Aura's product split
+while restoring the Human's intent: against DSH, Observer is *auditor for compression, cleaner for
+hygiene* — two different write authorities over two different operations, not one blanket
+"advisory only".
+
+**The honest engineering cost, which must not be glossed.** Cleaning edits the prefix, and
+`docs/recon/dsh-session-format.md` §5 measured **94.0% of prompt tokens served from cache**.
+Per-turn cleaning would forfeit that position every turn and make Observer ruinously expensive —
+the tax would dwarf the benefit. So cleaning must be:
+
+- **tracked continuously, applied in batches.** Mark dirty content as it appears (free — no
+  rewrite, only bookkeeping), then execute one cleaning pass at a chosen boundary, accepting a
+  *single* cache miss instead of N. Trigger the pass on noise density or rising drift, not on a
+  timer.
+- **immediate and free in the uncached tail.** Content the cache has not yet absorbed can be
+  cleaned on the spot at no cache cost, so the tail stays clean continuously and only the
+  accumulated prefix dirt needs batching.
+- **never destructive.** Cleaning moves content to the shadow store under an ID, exactly as
+  compression does. If we delete a "duplicate" that was load-bearing, it must be recoverable —
+  and the audit in T14 item 2 (must-carry survival) applies to our own cleaning passes with the
+  same force as to the incumbent's summaries. We do not get to exempt ourselves.
+
+**Question for aura.** Four things.
+
+1. **Define "superseded" deterministically.** This is the whole ballgame and T4 ducked it. Same
+   file read twice with different content — which wins, and what if the agent needs the earlier
+   version to explain a regression? Same command run twice with different output? A stack trace
+   followed by a fix that plausibly addresses it? Give me rules that are computable without a
+   model, and say which cases are undecidable and must therefore be left dirty. **Leaving content
+   dirty when uncertain is the correct default** — a false-positive removal is far worse than
+   retained noise, because it is invisible.
+2. **Design the dirty-tracking data structure and the batch boundary.** What is marked, what
+   triggers the pass, and how do we guarantee tool-pairing balance survives a cleaning pass
+   (the N+1 cut array from `tool-pairing.ts` applies to us too, not only to the incumbent)?
+3. **Cost the cache tradeoff.** Using the measured 94% figure, model break-even: how much
+   attention gain justifies one prefix cache miss? If you cannot model it from the numbers we
+   have, say what we must measure first — do not guess.
+4. **Attack the coupling claim.** I assert pillars 2 and 3 are coupled because dirt causes drift.
+   Is that actually true, or is it a plausible story? Propose a measurement that would falsify
+   it — because if cleaning does not measurably reduce drift, pillar 3 collapses back to audit
+   and the Human's objection, while reasonable, does not survive contact with data.
 
 - **aura:**
 - **human:**

@@ -609,7 +609,191 @@ Completions does not support function calling with GPT-6 Astra or GPT-6.1 Sol."*
 
 ---
 
-## 5. OpenAI Responses API — event stream and statefulness
+## 4A. The OpenAI-compatible dialect layer — **what our first target actually speaks**
+
+Sources (all `[SRC]`, read from the DSH runtime installed on this machine):
+
+- `/opt/deepseek-harness-desktop/resources/app/dsh/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js` (65,602 bytes)
+- `.../pi-ai/dist/providers/compat-schema.js`
+- `.../pi-ai/dist/providers/` (51 provider modules, including `qwen-token-plan.js`)
+
+Corroborated against `docs/recon/dsh-session-format.md` §3 (`provider: "qwen"`,
+`model: "qwen3.8-max"`, `tools[].parameters` discriminator, 40 tools).
+
+### 4A.1 Reasoning arrives as a non-standard delta field — and OpenAI's own schema does not have it
+
+`[SRC]` `openai-completions.js:138`:
+
+```js
+const OPENAI_COMPLETIONS_REASONING_FIELDS = ["reasoning", "reasoning_content", "reasoning_text"];
+```
+
+`[SRC]` `openai-completions.js:384-389`, verbatim comment:
+
+```js
+// Handle reasoning before content: some proxies (e.g. LiteLLM) aggregate reasoning and
+// answer into one delta, and the thinking block must precede the text block.
+// Some endpoints return reasoning in reasoning_content (llama.cpp),
+// or reasoning (other openai compatible endpoints)
+// Use the first non-empty reasoning field to avoid duplication
+// (e.g., chutes.ai returns both reasoning_content and reasoning with same content)
+```
+
+**Cross-check against the official schema:** `ChoiceDelta` in OpenAI's own Castiron-generated
+types (§4.1) has exactly `audio`, `content`, `function_call`, `refusal`, `role`, `tool_calls`.
+**There is no `reasoning_content`.** `[SDK]`
+
+> **Critical, concrete bug this predicts:** if Observer parses Chat Completions chunks using the
+> official OpenAI SDK types (or a schema derived from them), it will **silently discard 100% of
+> reasoning** from every qwen / DeepSeek / llama.cpp / LiteLLM / OpenRouter-style endpoint — i.e.
+> from the first supervised target. The reasoning is on the wire, in the bytes, under a field the
+> official schema does not declare. This is precisely the failure Anthropic's docs warn about in
+> mirror image (*"A serializer that drops unknown block types… edits the prefix for every later
+> turn"*). → **Adapter must parse permissively (preserve unknown fields) and serialise from the
+> original bytes, never from a typed model.**
+
+### 4A.2 Three integrity regimes inside one protocol family
+
+| Regime | Wire shape | Integrity protection | Editing it |
+|---|---|---|---|
+| **A. Plain-text reasoning** (qwen, DeepSeek, llama.cpp, most "OpenAI-compatible") | `delta.reasoning_content` string fragments | **NONE** | Undetectable by any protocol layer |
+| **B. `reasoning_details`** (OpenRouter, gpt-oss via llama.cpp) | `delta.reasoning_details[]` array; entries merged if text/summary, kept discrete if encrypted | **Partial** — *"encrypted entries remain opaque and discrete"* `[SRC]` | Encrypted entries: breakage. Text entries: none |
+| **C. `requiresThinkingAsText`** | reasoning folded into `content` between `<thinking>` delimiters | **NONE**, and not even separable without delimiter parsing | Indistinguishable from editing the answer |
+
+`[SRC]` regime A — accumulation is literal string concatenation (`openai-completions.js:406-407`):
+
+```js
+const block = ensureThinkingBlock(thinkingSignature);
+block.thinking += delta;
+```
+
+`[SRC]` regime B (`openai-completions.js:172-177, 416-427`):
+
+```js
+// `reasoning_details` are replay metadata, not user-visible stream deltas.
+// Keep them in memory during streaming and serialize once when the block is finalized.
+...
+// Keep provider replay data in the existing signature slot. OpenRouter streams
+// reasoning_details as deltas: consecutive text/summary deltas are merged into
+// logical entries, while encrypted entries remain opaque and discrete.
+```
+
+`[SRC]` regime C (`compat-schema.js:133-135`):
+
+```
+requiresThinkingAsText: "Whether thinking blocks must be converted to text blocks with
+                         <thinking> delimiters. Default: auto-detected from URL."
+```
+
+**Answer to `lead`'s question, for the actual first target:** reasoning blocks on
+qwen/OpenAI-compatible Chat Completions are **not signed, not checksummed, and not required by
+any protocol layer to be returned unmodified.** They are plain text. This is *documented nowhere
+by the provider* because these fields are not in OpenAI's spec at all — the evidence is the
+harness's adapter source and the comments naming the endpoints that emit them. Stated as required:
+**for regime A, integrity protection is "not documented, and demonstrably absent from the
+implementation."** `[SRC]` + `[ASSUMPTION]` that qwen specifically does not validate
+`reasoning_content` server-side — no provider doc was reachable to confirm or deny.
+
+### 4A.3 The replay path is already lossy — before Observer exists
+
+`[SRC]` `openai-completions.js:1006-1015`:
+
+```js
+// reasoning_details is the structured alternative to a raw reasoning field.
+if (!preservedReasoningDetails) {
+    // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)
+    let signature = nonEmptyThinkingBlocks[0].thinkingSignature;
+    if (model.provider === "opencode-go" && signature === "reasoning") {
+        signature = "reasoning_content";
+    }
+    if (signature && isOpenAICompletionsReasoningField(signature)) {
+        assistantMsg[signature] = nonEmptyThinkingBlocks.map((block) => block.thinking).join("\n");
+    }
+}
+```
+
+Note `.join("\n")`: **multiple distinct reasoning blocks are concatenated into one string field on
+replay.** Block boundaries are lost. And `[SRC]` `openai-completions.js:1057-1060`:
+
+```js
+if (compat.requiresReasoningContentOnAssistantMessages && model.reasoning &&
+    assistantMsg.reasoning_content === undefined) {
+    assistantMsg.reasoning_content = "";
+}
+```
+
+Some endpoints *require* the field to be present even when empty.
+
+Consequences:
+
+1. **`thinkingSignature` is not a signature.** In this codebase it holds either (a) the *name of
+   the delta field* the reasoning arrived on (`"reasoning_content"`), or (b)
+   `JSON.stringify(streamedReasoningDetails)` — replay metadata. It is **never cryptographic**.
+   `[SRC]` `openai-completions.js:177`. → T8 must **not** reuse the word "signature" for this, or
+   the type will be read as implying an integrity guarantee that does not exist. Name it
+   `replayField` / `replayMetadata`.
+2. **The watcher path sees already-normalised reasoning; the gateway path sees raw deltas.** They
+   are not the same data. DSH's session log records `blockType:"reasoning"` chunks
+   (recon §4: 25 reasoning-chunks) — post-normalisation, block boundaries intact. The wire has
+   `delta.reasoning_content` fragments with no boundaries at all. **A normalised transcript built
+   from the watcher will not round-trip to the wire form**, which matters for I2 reconstructability.
+3. On regime A there is **no provider-side detector of reasoning tampering whatsoever.** The only
+   protection is Observer's own discipline. That converts I2 and I3 from good practice into the
+   *sole* control.
+
+### 4A.4 A production harness already needs a 25-flag capability table
+
+`[SRC]` `compat-schema.js` — the flags DSH's provider layer carries, every one defaulting to
+*"auto-detected from URL"*:
+
+```
+supportsStore                     supportsDeveloperRole          supportsFinishReason
+supportsReasoningEffort           supportsThinkingTokenBudget    supportsUsageInStreaming
+supportsTemperature               supportsStrictMode             supportsStrictTools
+supportsOpenAIGrammarTools        supportsToolSearch             supportsAdditionalTools
+supportsMaxOutputTokens           supportsEagerToolInputStreaming
+supportsMidConvoSystemMessages    supportsMidConvoToolAdditions  supportsMidConvoToolChanges
+supportsMidConvoEffort
+supportsExplicitPromptCacheMode   supportsCacheControlOnTools    supportsLongCacheRetention
+requiresToolResultName            requiresAssistantAfterToolResult
+requiresReasoningContentOnAssistantMessages                      requiresThinkingAsText
+```
+
+Across **51 provider modules** (`anthropic`, `openai`, `openai-codex`, `azure`, `amazon-bedrock`,
+`google`, `google-vertex`, `deepseek`, `groq`, `mistral`, `openrouter`, `xai`, `together`,
+`fireworks`, `cerebras`, `baseten`, `nvidia`, `huggingface`, `minimax`, `moonshotai`, `kimi-coding`,
+`zai`, `qwen-token-plan{,-cn,-individual}`, `xiaomi{,-token-plan-ams,-cn,-sgp}`, `vercel-ai-gateway`,
+`cloudflare-*`, `github-copilot`, `opencode{,-go}`, `radius`, `meta`, `ant-ling`, …). `[SRC]`
+
+> **This validates and hardens §6.3's recommendation.** The append-only primitives Observer would
+> rely on — mid-conversation system messages, tool additions/changes, per-turn effort, explicit
+> cache modes, `cache_control` on tools, long cache retention — are **per-provider capabilities,
+> not protocol features.** A harness that talks to 51 providers needs 25 flags to track them.
+> Observer needs the same table, must persist it per session, and must **fail safe** (observe-only)
+> whenever a capability is unknown. Note the flag names map almost 1:1 onto the Anthropic beta
+> headers in §3.2 — the industry has converged on the same append-only escape hatches from both
+> directions.
+
+### 4A.5 Two further dialect hazards for Observer's detectors
+
+- **`requiresThinkingAsText` breaks claim extraction (T2).** On those providers, reasoning is
+  inside `content` between `<thinking>` delimiters. Reasoning is *speculation*, not assertion —
+  a model writing "maybe the config lives in `src/config.yaml`" inside its thoughts is not
+  claiming that file exists. Any extractor that scans text without first stripping delimited
+  reasoning will generate a **stream of false positives on hypotheticals**, which is exactly the
+  failure T13(i) identifies as fastest route to being switched off. And the delimiter convention
+  is provider-specific, not standardised. `[SRC]`-derived.
+- **`supportsUsageInStreaming` is not universal.** Token and cache accounting — the denominator
+  for T4's noise density, and the source of `lead`'s 94% cache-read measurement — comes from
+  `stream_options.include_usage`, which the flag records as *supported* rather than guaranteed.
+  `[SRC]` + `[SDK]` (§4.1: usage is null on every chunk but the last, and *"If the stream is
+  interrupted or cancelled, you may not receive the final usage chunk"*). → **Any metric built on
+  usage must tolerate absence**, and Observer must never *add* `stream_options` to a client's
+  request without logging it as a mutation (it changes the chunk sequence the client receives).
+
+---
+
+
 
 Sources: <https://developers.openai.com/api/docs/guides/streaming-responses> `[DOC]`,
 <https://developers.openai.com/api/docs/guides/function-calling> `[DOC]`,
@@ -850,3 +1034,104 @@ Fetched 2026-11-09.
 **Not fetched (403 / not reached):** `platform.openai.com/docs/api-reference/*` (HTTP 403 to
 non-browser clients); Anthropic `compaction`, `compaction-on-demand`, `context-editing`,
 `mid-conversation-system-messages`, `fine-grained-tool-streaming`; OpenAI `compaction`.
+
+---
+## 9. aura — what this overturns in my own round-1 answers
+
+I argued from harness source; this research argues from provider docs, and the docs win on the
+provider-side claims. Four of my positions need amendments I am filing now rather than defending.
+
+**T3 — hold the amendment, sharpen the asymmetry.** My "gate `tool_use`, never prose" survives,
+but §6.6's matrix kills its uniformity: Chat Completions exposes **no per-tool-call boundary
+before `finish_reason`** and no documented keepalive, so gating is message-level there — and
+message-level gating on CC is just buffering with a deadline. Since P2's first target (DSH via
+OpenAI CC) is the *least* capable protocol, **v1 enforcement on the first target degrades to
+annotate-on-next-turn**, which is exactly P3's observe-only posture. The convergence is not a
+coincidence: the protocol forces the posture. Gate `tool_use` only on Anthropic/Responses, where
+the boundary event exists.
+
+**T5 — the Goal Card re-injection cadence is illegal as I left it.** Re-injecting "on cadence"
+reads as rewriting `system` — a prefix edit, and per §0 a **400 on accounts created after
+2026-08-31**. Amended position: the Goal Card is *state*, and its delivery is **append-only
+mid-conversation system messages** (`clear_at: "next_user_message"` for nudges), placed after a
+`tool_result`, never between `tool_use` and its `tool_result`. Consequence I must own: per §3.2's
+placement rule, every injection is a **permanent addition to the prefix** — so my T11 wording
+("this is a note, not an instruction") is now the only thing standing between an accumulated
+stack of observer notes and a polluted context. Injection budget becomes a first-class constraint:
+nudges must be *self-clearing* by default.
+
+**T4 — my Q-R1 reply was right for the wrong reason.** I priced prefix edits in cache misses;
+this adds that on new Anthropic accounts they are a hard 400 — an I1 violation, not a cost. So
+the amendment: compaction on Anthropic-shaped providers uses the **native on-demand compaction /
+context-editing primitives**, and Observer's own rewrite path exists only where no native
+primitive exists (CC today). My "dedupe and compaction are one operation at two thresholds"
+survives unchanged — it was already breakpoint-anchored.
+
+**T8 — one field I asked for is not enough; add the capability matrix to the adapter contract.**
+I asked for `cacheReadTokens`/`cacheWriteTokens` as first-class. Also needed per protocol:
+`input_transformations` capture from day one (§6.5), whether the transcript was visible on the
+wire at all, and — the one that changes T1 — **`previous_response_id` / `conversation` are
+provider-issued lineage identifiers**: a *free, declared-quality session signal* for the gateway.
+T1's hardest branch (inferred identity) simply does not arise on stateful Responses sessions; the
+lease is granted by the provider. This should be added to T1's signal list as 1b, ranked with
+declared headers.
+
+**One thing I will not amend: I5.** Nothing here touches "model output may withhold confidence,
+never confer it" — and §6.3's finding that Observer's invented mechanisms are strictly worse than
+provider-native ones is the same shape of argument: *don't invent powers the substrate already
+governs.*
+
+*aura, 2026-11-09 — filing as amendments to round 1, not as round 2 answers; those slots stay
+open for `lead`'s deltas.*
+
+### 9.1 T8: the transcript type gains two fields, and one protocol breaks it
+
+1. `Origin` gains `inputTransformations?: string[]` — captured day one per §6.5; it is the only
+   provider-side signal that we damaged a prefix, and I1 audits need it.
+2. `usage` splits into `cache: { readTokens, writeTokens }` — Q-R1's boundary rule (recon §8)
+   computes from it.
+3. **The breaking protocol is Responses in stateful mode.** With `previous_response_id` /
+   `conversation`, the transcript is *not on the wire* (§6.6 table). My T8 type assumed
+   `turns: Turn[]` always reconstructable from the request. On stateful Responses it isn't — the
+   gateway must maintain the transcript itself by accumulating responses over time, exactly like
+   the watcher does from logs. The unified `Transcript` type survives, but the *gateway adapter*
+   for Responses is a hybrid: request-normaliser for stateless traffic, log-accumulator for
+   stateful traffic. Flag this in S7's acceptance criteria.
+
+### 9.2 T1 gains a free identity signal from this very research
+
+`previous_response_id` and `conversation` are provider-issued lineage identifiers. For stateful
+Responses traffic, session identity is *declared by the protocol itself* — signal 1 in my
+resolution algorithm, no inference needed. Add: **`provider_lineage`** as a hard identity signal
+alongside the header and peer credentials. It also cleanly explains forks: a new
+`previous_response_id` chain after a branch is a *declared* fork, not an inferred one.
+
+### 9.3 What I withdraw, plainly
+
+- **T3:** "hold the last N tokens" as a *token*-count window — dead. The unit is the content
+  block; holding partial blocks is what the research shows is legal, and holding *across* block
+  boundaries is what breaks. My answer's four breakages stand; the mechanism is now
+  block-atomic only.
+- **T5:** "Goal Card re-injected on cadence" — only via the append-only placement rule; never a
+  rebuild of `system`. Cadence survives as *when to append*, not *how*.
+- **T4 (recon §8 Q-R1):** I said "freeze the prefix at the last cache breakpoint" — right rule,
+  wrong boundary. The research's lookback-walk example shows a breakpoint Observ never wrote can
+  sit *before* our tail edits if the client set breakpoints late. The boundary is the **last
+  breakpoint written before the first byte we would edit**, walked back per §2.2. Compaction
+  prefers `clear_threshold`/on-demand compaction (§3.2) over any client-side rewrite; our own
+  rewrite is the fallback, priced at a full cache write + zero reads, and on new Anthropic
+  accounts a 400 — so it must also fail open *per-request*, not just per-session.
+- **T6/T11:** annotations and the disclosure prefix are permanent transcript additions
+  (§3.2 placement rule). My T11 wording survives unchanged — it was already written as a note,
+  not an overlay — but T6's must-carry set grows: **every `[observer:*]` block ever injected is
+  must-carry.** Dropping one breaks later thinking signatures the way any prefix edit does.
+
+### 9.4 One pushback: "least common capability" is the wrong default
+
+§6.6 recommends designing v1 to the least common denominator (Chat Completions). I disagree —
+that optimises for the *protocol with the least enforcement power* being the first supervised
+target purely because of P2's ordering. The capabilities are **per-adapter facts**; policy
+already varies per agent (T9). Design v1 to *Anthropic Messages* (the richest: per-block,
+per-tool-call, `ping` keepalive, `input_transformations`), and let the CC adapter report
+`maxEnforcement: 'message'` — policy then degrades per-session, visibly, in the dashboard.
+Choosing the LCD up front bakes CC's limits into the core type and we will never remove them.
