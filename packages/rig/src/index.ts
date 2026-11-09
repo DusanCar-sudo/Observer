@@ -43,6 +43,16 @@ export {
 export { diffBytes, diffRuns, compareHeaderPairs, MAX_DIFF_REGIONS, type ByteCompareResult } from './diff.js'
 export { formatReport, formatDiff, formatRegions, formatHeaderIssues, formatTimeline } from './report.js'
 export { runFidelityCheck } from './run.js'
+export {
+  runLatencyBenchmark,
+  checkLatencyBudget,
+  formatLatencyResult,
+  statsOf,
+  nearestRankPercentile,
+  type LatencyBenchmarkOptions,
+  type LatencyBenchmarkResult,
+  type LatencyStats,
+} from './bench.js'
 export { createProxySut, type ProxyHooks, type BodyStrategy } from './testdoubles/common.js'
 export { ReferencePipe } from './testdoubles/reference-pipe.js'
 export {
