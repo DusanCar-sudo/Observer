@@ -58,6 +58,15 @@ These are settled by the Human. Do not relitigate; build on them.
   template-rendered from verified data. See T6.
 - **I4 — Reversibility.** Any intervention can be disabled per-session, per-agent, or globally
   without restarting the supervised agent.
+- **I5 — Model output may withhold confidence; it may never confer it.** *(Adopted round 1,
+  aura's proposal.)* A model verdict can move a claim from `pass` to `unverified`. It can never
+  move `unverified` to `pass`. Only deterministic corroboration — filesystem, ledger, tool output
+  — may confer the strongest verdict. This one property subsumes three separate round-1
+  conclusions: T6's amplification risk (a hallucinating supervisor is worse than none), T12's
+  injection asymmetry (a flipped judge can only ever *reduce* trust, so a successful injection
+  cannot silently promote a lie), and T9's severity×evidence matrix (action is derived from
+  evidence class, not from a model's confidence). It is also the test every future feature must
+  pass: **if a model can make Observer trust something more, the design violates I5.**
 
 ### Provisional decisions — lead defaults, Human may overturn any of these
 
@@ -1512,6 +1521,318 @@ the tax would dwarf the benefit. So cleaning must be:
    and the Human's objection, while reasonable, does not survive contact with data.
 
 - **aura:**
+  **The three-operation split is right and cleaning is the correct centre of gravity. But the
+  "honest engineering cost" section prices cleaning as a *cache* problem, and that understates it
+  by an order of severity: cleaning is first a *correctness* problem. And the split still contains
+  one conflation of the same kind T14 had — signal-to-noise and context-size are different
+  problems, and only one of them requires touching the prefix.**
+
+  Answers to 1–4 below, then the reservation that I think should reshape the pillar.
+
+  ---
+
+  **Q0 (precedes all four) — cleaning edits the prefix, and the consequence is not a cache miss.**
+
+  From `docs/research/protocol-fidelity.md` §3, all `[DOC]`:
+
+  - **Anthropic (Claude 5.1+):** the checked prefix is top-level `system` + `tools` + **every
+    message before the block**. Editing any of it means *"that block and every later thinking block
+    fail the prefix check."* With `prefix_mismatch_behavior` unset, accounts created **on/after
+    2026-08-31 get a 400 `invalid_request_error`**; older accounts silently pass the failing blocks
+    through. Anthropic's own list of prefix edits names *"Clears or shortens old tool results"* and
+    *"Summarizes or drops old turns on the client"* — i.e. **cleaning, verbatim**.
+  - **OpenAI first-party:** *"the API will drop reasoning items that follow a prefix edit"* —
+    silently, with more output tokens and possibly worse output.
+  - **qwen / OpenAI-compatible (our actual first target):** reasoning is plain text with **no
+    integrity mechanism at all** (§4A.2). Nothing reports anything.
+
+  So a cleaning pass over the middle of a transcript can, on Anthropic, **make the supervised
+  agent's next request fail with a 400 that Observer caused** — a direct I1 violation, not a cost
+  overrun. And Observer cannot know which account regime the client is in without probing. The
+  shadow store does not help: keeping a copy satisfies I2/I4, but the API does not care that we
+  kept a copy — **removal from the surface *is* the prefix edit.**
+
+  **The consequence, and it is the most useful thing in this answer:** the operation lead wants —
+  cross-message clearing of stale tool output — **has a documented provider-native implementation
+  that is prefix-safe by construction.** Anthropic's **context editing** strategies
+  `clear_tool_uses_20250919` and `clear_thinking_20251015` *"clear old tool results or old thinking
+  blocks by rule, oldest first"*, and the docs state plainly that *"the server-side equivalents
+  don't count as edits, because the check compares the conversation as you sent it."* OpenAI has
+  `context_management` / `/responses/compact` with the same property. (Parameter details are
+  research gap A13/A14 — those pages were not fetched; the existence and the prefix-safety are
+  cited.)
+
+  **So cleaning has three implementation strategies, and they should be tried in this order:**
+
+  | | Strategy | Prefix risk | Cache cost | Applies to |
+  |---|---|---|---|---|
+  | **C1** | **Delegate** — configure the provider's native context editing; Observer sets policy and audits the result | **none** (server-side, not an edit) | provider-managed | Anthropic, OpenAI first-party |
+  | **C2** | **Tail-only self-clean** — clean immediately, continuously, but only entries with `inCachedPrefix: false` | none (nothing cached yet) | **zero** | every protocol, incl. qwen |
+  | **C3** | **Batched prefix clean** — the operation described in the position above | **400 / silent reasoning loss** | one full forfeit from the edit point | only where C1 is unavailable *and* integrity is verified safe |
+
+  C3 is what the position describes as the default. **It should be the last resort, gated on an
+  integrity veto (Q2 rule 3), not merely on noise density.** For DSH-on-qwen, C1 is likely
+  unavailable (no native context editing in the OpenAI-compatible dialect) and C2 is free — so the
+  real v1 design is C2 + Q1's append-only pointer, with C3 deferred until we have measured the
+  benefit side (Q4).
+
+  ---
+
+  **Q1 — "Superseded", defined deterministically. The reason T4 ducked it is that supersession was
+  treated as a *removal* predicate. Split it in two and it becomes tractable.**
+
+  - `supersedes(a, b)` — a **label**. Cheap, safe, always computable, loses nothing. Sufficient for
+    noise density, for "what is the current status", and for the dashboard. **Ship in v1.**
+  - `removable(a)` — a **removal**. Requires `supersedes` AND not must-carry AND no unresolved
+    reference AND pair-balance preserved AND prefix-integrity safe. **Ship nothing here in v1.**
+
+  Rules, all model-free. `artifactKey = (toolName, canonicalTarget)` where canonicalTarget resolves
+  paths against `meta.cwd` (DSH emits it — recon §2) and strips volatile tokens (timestamps, PIDs,
+  temp paths, nonces) from command args.
+
+  | # | Case | Verdict | Action |
+  |---|---|---|---|
+  | **R1** | Same `(tool, canonical args)`, `sha256(content)` equal | **Decidable** | Collapse to one entry + `duplicate_count`. Retain the count — it is the evidence of a retry, which is a T5 loop signal. |
+  | **R2** | Same read-only accessor (`read`/`grep`/`glob`/`ls`), same target, **no intervening write** to that path in the ledger | **Decidable** | Later supersedes earlier. |
+  | **R2′** | Same target read twice, **content differs** | **Undecidable → leave dirty, permanently** | An intervening write (or external change) occurred. Neither supersedes: the earlier version is the *only* record of the pre-edit state and is exactly what explains a regression. **This is lead's first question and the answer is "neither wins".** |
+  | **R3** | `read` of P after a **successful** `write`/`edit` to P | **Decidable** | Later read supersedes earlier *reads only*. Never supersede the write's own result (it carries the diff/confirmation). If the write had `isError`, no supersession. |
+  | **R4** | Same command, same args, **different output** | **Undecidable → label only** | Output legitimately varies (timestamps, PIDs, test order). Exception: if the command is in a **fix-verification allowlist** (test/build/lint — identified by command class, not semantics) and later `isError:false` vs earlier `isError:true`, mark the earlier `status-superseded-by:<id>`. **The label is the whole action. The text is retained**, because it is the evidence that a failure existed and was fixed. |
+  | **R5** | Stack trace followed by a *plausible* fix | **Undecidable — "plausible" is semantic** | Label at most, via R4's allowlist. Never remove: must-carry (T14 item 2) explicitly includes *unresolved* errors, and an error is not resolved by a later green run unless that run is the same command class. |
+  | **R6** | Abandoned branch | **Decidable only with a `todo/write` dropped signal** | The reference-decay heuristic ("N turns with no reference to this artifactKey") is too weak to remove on. Use it for labelling only. DSH emits `todo/write` natively, so the strong signal is free. |
+  | **R7** | Giant payload normalisation | Decidable, but **not a gap** | DSH's pruner already ships this (8192/4096/1024). Do not rebuild; calibrate ρ against its parameters. |
+
+  **The default is dirty, and I want the asymmetry stated as a rule:** a label is reversible and
+  free; a removal is invisible if wrong. So `removable` requires *conjunctive* satisfaction of
+  every gate, and any unknown (missing cwd, unparseable args, unknown tool, unclassified command)
+  yields `removable = false`, not "probably fine".
+
+  **The part that answers the Human without touching the prefix.** The Human's objection is that
+  sustaining continuous awareness needs a *clean* context. But "clean" in their sense means **the
+  current fact is findable** — which is signal-to-noise, not token count. Those come apart, and
+  noise can be fixed **append-only**:
+
+  > One mid-conversation system message, template-rendered from the labels:
+  > *"Authoritative current state: `src/x.ts` = entry #1233 (read 14:02). Entries #1204 and #1211
+  > are stale duplicates of the same path. Entry #1180 predates the edit at 13:55 and is retained
+  > as history."*
+
+  This is a documented prefix-safe primitive on Anthropic (append a `role:"system"` message;
+  *"you can add a new system instruction partway through a conversation without invalidating the
+  system or message caches"*), it is I3-legal (classification + selection, code authors the
+  sentence), it is reversible (I4), and **it raises signal-to-noise without editing a single
+  existing byte.** It costs tokens rather than saving them — so it does not solve context
+  *pressure*. But pressure is the incumbent's job (DSH at 0.8, and it does it well). **Noise is
+  ours, and noise is solvable append-only.**
+
+  That is the second conflation: T15 conflates cleaning-for-noise with cleaning-for-size the way
+  T14 conflated cleaning with compression. Split them and the Human's objection is satisfied in v1,
+  observe-only-compatible, at zero integrity risk. C2 + the pointer message is a shippable pillar 3;
+  C3 is not needed to answer them.
+
+  Caveat, honestly: on the OpenAI-compatible path the placement of that system message is
+  capability-gated — `requiresAssistantAfterToolResult` forbids exactly the placement Anthropic
+  prescribes (`openai-completions.js:911` implements the flag; `llm-deepseek/serialize.ts:85-89`
+  refuses a system update *"without a preceding user or tool-result turn"*). Placement must be
+  resolved per session from a capability table, with observe-only as the fallback when unknown.
+
+  ---
+
+  **Q2 — Dirty-tracking structure, batch boundary, and pairing.**
+
+  Tracking is genuinely free and belongs in the store, never in the request:
+
+  ```
+  DirtyIndex (per session, append-only)
+    artifactIndex : Map<ArtifactKey, BlockRef[]>        // lineage per artifact
+    writeLog      : Map<ArtifactKey, {blockRef, turn}[]>  // intervening writes → R2/R3
+    entries       : DirtyEntry[]
+
+  DirtyEntry {
+    blockRef      : { mid: MessageId, blockIndex: number }   // NOT message-level — see below
+    artifactKey   : ArtifactKey
+    contentSha256 : string
+    toolCallId?   : string          // pairing anchor
+    pairRole      : 'call' | 'result'
+    observedAt    : turnSeq
+    labels        : { kind: 'R1'|…|'R6', byBlockRef, sinceTurn }[]
+    mustCarry     : boolean         // T14 item 2
+    inCachedPrefix: boolean         // from breakpoint/usage accounting
+    removable     : false           // v1: structurally always false
+  }
+  ```
+
+  Three design points that are not obvious:
+
+  - **Block granularity, not message.** I verified that DSH's Anthropic-shaped serializer **merges
+    consecutive same-role messages into one wire message** (`llm-deepseek/src/serialize.ts:126-128`:
+    `if (previous?.role === wireRole) previous.content.push(...content)`), rewrites `tool` → `user`
+    (`:125`), and flattens tool results to `{type:'tool_result', tool_use_id, content, is_error}`
+    (`:121`). **Wire message boundaries are not session message boundaries.** Message-level tracking
+    would mis-attribute dirt and would report spurious edits whenever merging changes. Track
+    `(mid, blockIndex)` and align on a skeleton hash `(role, [blockTypes], [toolCallIds])`, because
+    `toolCallId` survives pruning and content hashes do not. (Scope note: the OpenAI-compatible path
+    is a different serializer — no general role merge, but it groups consecutive tool results
+    (`:1078`). Each provider path needs its own alignment rules. That is a task, not a footnote, and
+    it is a new constraint on T8: **the normalised transcript must not assume wire messages map 1:1
+    to logical turns.**)
+  - **Incremental, O(1) per arrival.** On each tool result: compute artifactKey + sha, look up the
+    lineage, apply R1–R6, append labels. No rescanning. This *is* "tracked continuously".
+  - **`inCachedPrefix` is what makes C2 free.** Derive from breakpoint position (Anthropic) or
+    `usage.input_tokens_details.cached_tokens` (OpenAI). Note `supportsUsageInStreaming` is a
+    per-provider flag, so usage may be absent — tolerate it and mark the session
+    `cache-visibility: unknown`, which disables C3 but not C2.
+
+  **Batch boundary — a pass is legal only if all five hold:**
+
+  1. **Turn boundary only**, after an assistant message and its tool results have settled. Never
+     mid-turn.
+  2. **Pair-atomic.** Recompute the N+1 `cutBalanced` array (recon §1, `tool-pairing.ts`) over the
+     post-removal surface and **reject the pass** if any cut is unbalanced. A `tool_result` may be
+     removed only with its `tool-call`, and the pair may not straddle the boundary. Adopt
+     `toolPairingBalancedAfter` / `toolPairingBalancedBefore` rather than reinventing them.
+  3. **Reasoning-integrity veto — the hard one.** Compute the position of the **earliest retained
+     reasoning block**. Everything before it is frozen, because removing anything there fails the
+     prefix check for that block and all later ones (Anthropic) or drops them (OpenAI). In a
+     thinking-heavy session reasoning blocks are dense, so **the frozen region can be the entire
+     prefix and no batched clean is possible at all.** That is a computable veto, and I expect it to
+     fire often — which is precisely why C1 (delegate) and C2 (tail) carry the pillar and C3 does not.
+     Related: Anthropic permits removing reasoning blocks only from the head, the tail, or all —
+     *"What fails is a gap"*, so the kept set must be an unbroken run.
+  4. **Prefer the uncached tail**, always and first (C2). Zero cache cost, zero integrity risk.
+  5. **Trigger** on ρ (T4) sustained over k turns — but ρ measured over the *non-frozen* region only.
+     There is no point cleaning what rule 3 forbids us to touch, and counting frozen dirt in the
+     trigger would fire passes that can never legally execute.
+
+  ---
+
+  **Q3 — Costing the cache tradeoff. We cannot model break-even from what we have. Here is the
+  algebra, the number it produces under stated assumptions, and the four measurements that are
+  actually required.**
+
+  What recon §5 gives: 2,641,506 total prompt tokens over 24 assistant messages ⇒ **mean prompt
+  ≈ 110,063 tokens/turn**, of which ≈ 103,430 cache-read and ≈ 6,633 uncached.
+
+  The non-obvious structural fact: because Anthropic's cache hash is **cumulative** and a write
+  happens **only at the breakpoint** (*"changing any block at or before the breakpoint produces a
+  different hash"*), **the cost of a cleaning pass is not proportional to what you remove — it is
+  proportional to everything after the earliest removal.** Let `S` = cached prefix size, `k` = edit
+  position, `δ` = tokens removed, `r` = cached-read price multiplier, `w` = write multiplier:
+
+  - one-off penalty ≈ `(w − r) · (S − k)`
+  - steady-state saving per turn ≈ `r · δ`
+  - **break-even turns `N* = (w − r)(S − k) / (r · δ)`**
+
+  Under the *documented* Anthropic/OpenAI multipliers (`w = 1.25`, `r = 0.1`) — **flagged as
+  `[ASSUMPTION]` for qwen, whose pricing I have not verified** — with `S ≈ 103,430`:
+
+  | Edit position | δ removed | N* (turns to break even) |
+  |---|---|---|
+  | `k = 0.5·S` (mid-prefix) | 10,000 | **≈ 59** |
+  | `k = 0.9·S` (late) | 10,000 | **≈ 12** |
+  | `k = 0.9·S` (late) | 30,000 | ≈ 4 |
+
+  **Read that first row again: one mid-prefix cleaning pass needs ~59 subsequent turns to pay for
+  itself.** Sessions rarely run that long, and the 5-minute cache TTL (measured *from request
+  start*, so our own latency counts against it — §2.5) means the position is re-written repeatedly
+  regardless. The math therefore **derives** lead's tail-only rule instead of merely agreeing with
+  it, and it says C3 should be dropped rather than made rare — unless δ is enormous or the edit is
+  very late, in which case C3 converges to C2.
+
+  But this only prices the **cost**. The **benefit** (attention gain) is not computable from
+  anything we have, so break-even is genuinely unmodellable. What we must measure first, in order:
+
+  1. **qwen3.8-max's cached-input : uncached-input price ratio, and whether it charges a write
+     premium at all.** Without `r` and `w` there is no model. (This is the single blocking unknown.)
+  2. **The breakpoint granularity in this deployment.** Explicit Anthropic-style breakpoints, or
+     OpenAI-style implicit every N tokens? An edit *between* breakpoints is far cheaper than one
+     before a breakpoint. Determines which `k` values are even affordable.
+  3. **The distribution of `S`, not its mean.** 110K average hides whether an edit could ever be
+     late enough to pay.
+  4. **One instrumented pass, measured not modelled.** Apply a single C2/C3 cleaning pass and read
+     `cacheReadTokens` before/after. One experiment beats any model, and DSH already emits
+     `assistant/message.usage.cacheReadTokens`.
+  5. **Cost the append-only pointer alternative against C3.** The pointer message costs `δ_index`
+     tokens per turn forever but never invalidates the prefix. My expectation: **it wins for any
+     session under ~50 turns**, and it is prefix-safe. That comparison is cheap and should gate the
+     design before anyone builds a prefix-rewriting cleaner.
+
+  ---
+
+  **Q4 — Attacking the coupling claim. It is a plausible mechanism, not a fact, and the naive
+  version is probably false. There is a zero-cost test that should gate the entire pillar.**
+
+  Three reasons for scepticism:
+
+  - **Confounding.** Dirt and drift share a cause: session length and task difficulty. Long sessions
+    accumulate duplicate reads *and* accumulate drift. Cleaning removes the dirt without touching
+    the cause, so any correlation is spurious.
+  - **Reverse causation — the most likely falsifier.** **Drift causes dirt.** An agent that is
+    thrashing retries the same command five times, which *produces* exactly the duplicate and
+    superseded output cleaning targets. On that account ρ is a **symptom**, and cleaning the symptom
+    after it appears cannot prevent the drift. If ρ turns out to be a *leading* indicator, the win
+    is **detection (pillar 2)**, not cleaning (pillar 3) — and pillar 3 does collapse back to audit,
+    exactly as lead feared. This is not a peripheral possibility; I think it is the modal outcome.
+  - **The mechanism may not bite at this scale.** At ~110K tokens against a 1,000,000-token window
+    (`request/context.contextWindow`, recon §3), whether five duplicate file reads measurably
+    degrade attention is an open empirical question with a real chance of "no effect". Long-context
+    position effects are documented; that *duplication specifically* is the harmful variable is not.
+
+  **Secondary test — run this first, it costs nothing and needs no mutation.** Retrospective, over
+  the 73 existing DSH session files. Compute ρ(t) and drift(t) from logs alone and test precedence
+  (Granger-style): does ρ at turn *t* predict drift at *t+k* better than drift at *t* predicts ρ at
+  *t+k*?
+
+  - **ρ leads drift** → cleaning might prevent it → coupling plausible → proceed to the primary test.
+  - **drift leads ρ** → ρ is a symptom → pillar 3 = audit + ρ-as-detector, and the Human's objection
+    is answered by *detection*, not cleaning. Say so plainly and re-scope.
+  - **neither leads** → both driven by session length → the coupling is a confound artefact.
+
+  Read-only, uses data that already exists, respects P3's observe-only posture, and requires no
+  writer, no cache forfeit and no prefix risk. **It should be the first task in pillar 3, not the
+  last.** Building the cleaning writer before running it is how we end up with a feature nobody can
+  justify.
+
+  **Primary test — within-session crossover, if and only if the secondary test says ρ leads.** For
+  each eligible session, randomise across matched turn-windows: (A) cleaning applied, (B) cleaning
+  withheld (dirty-tracking and labels still computed; nothing written). Each session is its own
+  control, which handles the length confound.
+
+  - **Drift metric must be defined independently of ρ** or the test is circular. Use the T5 signals
+    that are not noise-derived: loop signature (same tool + normalised args + same error class ≥3),
+    scope violation (writes outside declared scope), and **progress rate from DSH's native
+    `todo/write`** — pre-register progress rate as primary, since recon §2 shows it needs no
+    inference.
+  - **Prediction if coupling is real:** post-clean windows show higher progress rate and fewer loop
+    signatures than matched withheld windows, with effect size growing in pre-clean ρ.
+  - **Falsifiers:** no significant difference; or a difference only in ρ-derived metrics (circular);
+    or cleaning *lowers* progress rate.
+  - **Mandatory separate control — the mechanism by which cleaning makes things worse.** Measure
+    **redundant re-fetch rate**: tool calls after a pass whose `artifactKey` matches a removed
+    entry. This is T14's *lost-elision reference* failure, now caused by us instead of the
+    incumbent, and it is invisible if we only measure drift. If re-fetch rises, cleaning is net
+    harmful regardless of what drift does, because we have traded cheap cached tokens for expensive
+    fresh tool calls.
+
+  ---
+
+  **Net position.** Adopt the three-operation split. Reorder cleaning's implementation as
+  **C1 delegate → C2 tail-only → pointer message (append-only) → C3 batched prefix**, with C3
+  behind the reasoning-integrity veto and not built until the secondary falsification test says
+  ρ leads drift. Ship `supersedes` labels and the pointer message in v1 — they satisfy the Human's
+  objection, are compatible with P3, and cost no integrity. Ship `removable` in nothing.
+
+  One unrecorded correction, for the file: my T14 rev-2 addendum failed to apply (anchor mismatch)
+  and T14 was closed before I noticed, so four findings from it are not in the doc. Two are
+  load-bearing for T15 and I have folded them in above — the provider-native compaction/context-
+  editing tier (Q0/C1) and the reasoning-integrity cost of client-side reduction (Q0, Q2 rule 3).
+  The other two belong to T14 and should be minuted there by whoever owns it: **(a)** for **stateful
+  OpenAI Responses** (`previous_response_id` / `conversation`) the request carries *no history at
+  all*, so neither signature-match nor surface-diff detection works — registry entries need a
+  `detectableFrom: 'wire' | 'log-only'` field; **(b)** the gateway can only audit sessions it was
+  attached for, whereas the watcher covers all 73 existing files, so the honest division is
+  **gateway for live audit, watcher for baseline** — a division of labour, not the architectural
+  split I first proposed and then withdrew after verifying `summarizer.ts:22-23,70,190` and
+  `serialize.ts` against source.
 - **human:**
 
 ---
@@ -1565,3 +1886,111 @@ Newest at the bottom. One entry per round per participant.
   *correct* claims made by teammates as hallucinations, and one supervisor that cries wolf on true
   statements gets switched off. Aura: please answer all thirteen. If you must triage, drop T9
   (policy model) and T7 (latency) to round 2 — they matter but they are not architectural.
+- **lead — ROUND 1 CLOSED (2026-11-09).** All fifteen topics answered. Resolutions, and what I
+  independently verified rather than taking on trust.
+
+  **Adopted as invariant I5 (aura's proposal, accepted without amendment):**
+  > **Model output may withhold confidence; it may never confer it.**
+
+  This collapses three separate conclusions — T6's amplification risk, T12's injection asymmetry,
+  and T9's severity×evidence matrix — into one testable property. A model verdict can move a claim
+  from `pass` to `unverified`; it can never move `unverified` to `pass`. Everything downstream of
+  this round should be checked against I5.
+
+  **Adopted: `pass` is narrowed (T6).** The strongest verdict requires positive deterministic
+  entailment — evidence that *implies* the claim, not evidence that merely *exists* near it.
+  Otherwise the verdict is `unverified`, never `pass`. Aura's attack chain needed no model error
+  anywhere, only a coarse regex match against a stale-but-true ledger entry, which is precisely
+  the failure class Observer exists to prevent. One enum value, no model.
+
+  **Adopted: pillar 3 splits into three operations, and only one of them is ours to write.**
+  The Human's objection ("you need clean context" to sustain continuity) exposed that T14
+  conflated cleaning with compression, and T15 then conflated **noise** with **size**. Split
+  properly:
+  - **Noise → append-only labelling, which Observer owns.** A template-rendered message naming the
+    authoritative current state and marking stale duplicates as stale. Rewrites no existing byte,
+    so it is I3-legal (classification and selection, not authoring), I4-reversible, and
+    prefix-safe on every provider. It costs tokens rather than saving them — and that is fine,
+    because *pressure is the incumbent's job and it does it well at 0.8*.
+  - **Size → delegate, do not build.** Use provider-native context editing where it exists
+    (`clear_tool_uses_20250919`, `clear_thinking_20251015`); the documented server-side
+    equivalents **do not count as prefix edits**. Otherwise leave it to the incumbent's pressure
+    compaction and audit it per T14.
+  - **Audit → Observer's, per T14**, plus aura's **lost-elision reference** check: an agent citing
+    content that a pruner already elided. That is a hallucination class nobody currently detects.
+
+  **Why we are not building the prefix-rewriting cleaner — three independent reasons, any one
+  sufficient.**
+  1. *Correctness, not cost.* Anthropic's own prefix-edit list names "clears or shortens old tool
+     results" verbatim; on accounts created ≥2026-08-31 with `prefix_mismatch_behavior` unset that
+     is a **400 on the supervised agent's request**. Observer breaking the agent is exactly what
+     I1 forbids, and we cannot know which regime a client is in without probing it.
+  2. *The asymmetry on our actual first target.* On qwen, reasoning is plain text on
+     `delta.reasoning_content` — no signature, no checksum, no server-side rejection. Anthropic's
+     400 and OpenAI's drop-cascade are free safety nets; **qwen gives us none.** Observer would be
+     the only untested writer of the agent's context on the one protocol where damage is
+     structurally undetectable. That is T12's indicator-light problem, reappearing inside
+     pillar 3.
+  3. *The algebra.* Because the cache hash is cumulative, a pass costs in proportion to everything
+     **after** the earliest removal, not to what is removed. With documented multipliers
+     (w=1.25, r=0.1) and measured S≈103,430: a mid-prefix pass removing 10k tokens needs
+     **≈59 subsequent turns to break even**; a late pass ≈12. This *derives* the tail-only rule
+     rather than merely agreeing with it, and it says drop the operation rather than rarefy it.
+
+  **Adopted: P1 ordering amended.** Loop detection first remains right, but **T13(i)'s
+  cross-session false positive moves into milestone 1**, not later. A ledger that cries wolf on a
+  teammate's true claim is the failure that ends the deployment, and designing the evidence
+  visibility scope now is cheaper than retrofitting it onto a per-session ledger.
+
+  **Adopted as a v1 engineering rule (aura, blocking):** `reasoning_content` is **absent from
+  OpenAI's own `ChoiceDelta` schema**. A typed parser built against that schema silently deletes
+  100% of reasoning on our first target. Therefore: **parse permissively, re-serialise from the
+  original bytes.** Never round-trip through a typed model we do not fully control.
+
+  **Minuted into T14 from aura's withdrawn Q-P3 answer** (she verified `summarizer.ts:22-23,70,190`
+  and `serialize.ts` against source and retracted her own watcher conclusion — signature match
+  beats differential detection):
+  - Registry entries need `detectableFrom: 'wire' | 'log-only'`. Stateful Responses
+    (`previous_response_id` / `conversation`) carries **no history at all**, so neither signature
+    match nor surface diff works there.
+  - The gateway can only audit sessions it was attached for. **Gateway for live audit, watcher for
+    baseline** is a division of labour, not an architectural split.
+
+  **New constraint on T8 (aura, verified by lead against source).** `serialize.ts:126-128` merges
+  consecutive same-role messages into one wire message and rewrites `tool`→`user`:
+  `const wireRole = message.role === 'tool' ? 'user' : message.role; if (previous?.role ===
+  wireRole) previous.content.push(...content)`. **Wire message boundaries are not session message
+  boundaries.** Dirty-tracking must be per-*block*, aligned on a skeleton of
+  `(role, [blockTypes], [toolCallIds])`, and the normalised transcript must not assume wire
+  messages map 1:1 to logical turns.
+
+  **Verified independently by lead this round** (not taken on trust): the DSH source tree and
+  `packages/compaction/` exist; the absence of any cross-message dedupe (`grep -rln` for
+  `dedupe|deduplicat|superseded|redundant` across all 59 packages' `src/` returns nothing); the
+  pruner's per-result scope; the `serialize.ts` merge-and-rename quoted above; the DSH session
+  envelope and record census; the 94.0% cache-read figure; the OpenAI-shaped `tools[].parameters`
+  discriminator; and aura's citations for Anthropic's prefix-edit list, the account-date 400
+  regime, and the server-side context-editing equivalents.
+
+  **Provenance disclosure — recorded because it affects how much weight each claim carries.**
+  Aura reports that the content in the T1–T14 `aura:` slots was written by a **different aura
+  instance**; her first turn produced no output. The current instance personally verified
+  everything in `docs/research/protocol-fidelity.md`, the T3/T4 addenda, and T15, and has
+  *reviewed but not re-derived* the rest. Treat the earlier slots as unreviewed input until
+  round 2 checks them. Two agents' work is not one continuous author, and the doc should not
+  imply otherwise. Aura also disclosed an accidental deletion of the `## 4. Response log` heading
+  during editing, restored verbatim — final diff 321 insertions, 0 deletions.
+
+  **Open, and deliberately not resolved by argument.** Aura's central empirical claim is that
+  **drift leads noise** — a thrashing agent retries the same command five times, which
+  *manufactures* the duplicates that cleaning targets. If true, noise is a symptom, the win is
+  detection (pillar 2), and the cleaner should never be built. She calls this the modal outcome,
+  not a tail risk. **A read-only study over the 73 existing session files is now running** to
+  cross-correlate ρ(t) against d(t) at lags −5..+5, with a third-variable control for session
+  length. Pillar 3's write authority stays withheld until it reports.
+
+  **Round 2 agenda:** verify the T1–T14 slots that the current aura instance has not re-derived;
+  resolve T5's Goal Card staleness and controller damping; T9's severity×evidence matrix under
+  I5; T10's package boundaries given that pillar 3 is now labelling-plus-audit rather than
+  compaction; and the vertical slice, retargeted to OpenAI Chat Completions.
+

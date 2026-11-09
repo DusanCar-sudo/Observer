@@ -1031,6 +1031,15 @@ Fetched 2026-11-09.
 13. `ResponseStreamEvent` union (63 event types) — <https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_stream_event.py>
 14. SSE reader / `[DONE]` handling — <https://github.com/openai/openai-python/blob/main/src/openai/_streaming.py>
 
+**DeepSeek Harness source tree (`/home/dusan/deepseek-harness/`, 59 packages) — `[SRC]`**
+15. Compaction checkpoint wire signature — `packages/compaction/compaction-basic/src/summarizer.ts:22-23`
+    (`SUMMARY_OPEN_TAG`/`SUMMARY_CLOSE_TAG` = `<compacted-summary>`), `:70` (`CHECKPOINT_PREAMBLE`),
+    `:190` (emitted as a literal `text` block)
+16. Wire serialisation (Anthropic-shaped): role merging, `tool`→`user` rewrite, system-update
+    placement guard — `packages/llm/llm-deepseek/src/serialize.ts:85-89, 121, 125, 126-128`
+17. Tool-pairing balance / pruner config — see `docs/recon/dsh-compaction-prior-art.md` §1, §3
+    (`compaction/src/tool-pairing.ts`, `compaction-tool-result-pruner/src/config.ts:7`)
+
 **Not fetched (403 / not reached):** `platform.openai.com/docs/api-reference/*` (HTTP 403 to
 non-browser clients); Anthropic `compaction`, `compaction-on-demand`, `context-editing`,
 `mid-conversation-system-messages`, `fine-grained-tool-streaming`; OpenAI `compaction`.
