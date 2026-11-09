@@ -184,7 +184,8 @@ export class ResponseDecoder {
   #bodyByteCount = 0
   #outcome: 'pending' | 'complete' | 'truncated' = 'pending'
   #socketEnded = false
-  #excessBytes = 0
+  #excess: Buffer[] = []
+  #excessCount = 0
 
   get head(): DecodedHead | undefined {
     return this.#headDecoded
@@ -200,13 +201,27 @@ export class ResponseDecoder {
 
   /** Bytes seen beyond the declared framing (protocol violation counter; informational). */
   get excessBytes(): number {
-    return this.#excessBytes
+    return this.#excessCount
+  }
+
+  /**
+   * Take and clear bytes received after framing completed. On a keep-alive
+   * connection these belong to the NEXT exchange (e.g. a coalesced TCP event
+   * carrying response 1's tail and response 2's head); callers looping exchanges
+   * on one socket must re-feed them into a fresh decoder.
+   */
+  drainExcess(): Buffer {
+    if (this.#excess.length === 0) return Buffer.alloc(0)
+    const out = this.#excess.length === 1 ? (this.#excess[0] as Buffer) : Buffer.concat(this.#excess)
+    this.#excess = []
+    return out
   }
 
   /** Feed one socket data event. Returns decoded body bytes produced by THIS feed (may be empty). */
   feed(data: Buffer): Buffer {
     if (this.#outcome === 'complete') {
-      this.#excessBytes += data.length
+      this.#excessCount += data.length
+      this.#excess.push(Buffer.from(data))
       return Buffer.alloc(0)
     }
     let rest = data
@@ -238,7 +253,8 @@ export class ResponseDecoder {
       }
     }
     if (this.#outcome === 'complete') {
-      this.#excessBytes += rest.length
+      this.#excessCount += rest.length
+      if (rest.length > 0) this.#excess.push(Buffer.from(rest))
       return Buffer.alloc(0)
     }
     if (rest.length === 0) return Buffer.alloc(0)
@@ -249,7 +265,10 @@ export class ResponseDecoder {
       this.#remaining -= take
       this.#bodyByteCount += take
       if (this.#remaining === 0) this.#outcome = 'complete'
-      if (rest.length > take) this.#excessBytes += rest.length - take
+      if (rest.length > take) {
+        this.#excessCount += rest.length - take
+        this.#excess.push(Buffer.from(rest.subarray(take)))
+      }
       return Buffer.from(body)
     }
     if (this.#mode === 'close') {

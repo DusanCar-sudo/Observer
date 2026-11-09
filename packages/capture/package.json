@@ -1,0 +1,30 @@
+{
+  "name": "@observer/capture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "V0a logging tap: records RAW BYTES of live DSH->qwen traffic (both directions, zero mutation of bodies), plus the capture recorder, replay server, and redaction pass. Bodies are never parsed on the forwarding path — reasoning_content is absent from OpenAI's own ChoiceDelta schema, so a typed tap would silently drop 100% of reasoning on target one.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "observer-tap": "./bin/tap.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "pnpm run typecheck && vitest run"
+  },
+  "devDependencies": {
+    "@observer/rig": "workspace:*",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
