@@ -87,6 +87,34 @@ and *no* model calls from Observer. That makes it cheap, safe, and — important
 of the one thing that must work before anything else matters: standing in the middle of a live
 agent's traffic without breaking it.
 
+### Empirically settled (round 2) — from `docs/research/noise-drift-study.md`
+
+A read-only study over the 73 real session files on this machine (42 qualified, 33 correlatable)
+settled the question T15 could not. Its methodological centre is a **null simulation**: sessions
+in which the same events raise both series at the same step, with *zero* true lead in either
+direction, run through the identical pipeline. That null reproduces the observed "drift-leads"
+pattern and **exceeds** it (33 drift-leads / 0 noise-leads, larger amplitudes than the real data).
+So the apparent lead was a measurement artefact of correlating a windowed score against a
+cumulative one — and linear detrending does not cure it. In increment space, every predictive
+signal collapses to ≈0 in both directions, with bootstrap CIs straddling zero.
+
+**Verdict: no temporal lead–lag in either direction. What exists is synchrony with a shared
+origin — thrashing episodes *are* the noise, measured twice.**
+
+| # | Settled decision | Evidence |
+|---|---|---|
+| **E1** | **Do not build the prefix-rewriting context cleaner (T15's C3).** Not as a drift-prevention device, at any rate or cadence. | Zero evidence that accumulated noise predicts subsequent drift. Cleaning would remove the smoke with no demonstrated effect on the fire. Independently condemned three ways: Anthropic 400s prefix edits, qwen makes the damage undetectable, and cache algebra puts mid-prefix break-even at ≈59 turns. |
+| **E2** | **Pillar 3 reduces to audit + append-only labelling.** Labelling is justified on *findability* grounds only. It must not be sold, internally or to the Human, as preventing drift. | The study cannot support a drift claim for it. A cost-only case exists (22.3% of qualified-session result bytes redundant) but the 94%-cache measurement plus the break-even algebra make it weak, and it is a different value proposition. |
+| **E3** | **Pillar 2's deterministic repeat counter is the highest-value component in the system.** Build it first, in milestone 1. | A single session contains **891 byte-identical `sed -n '21,33p'` bash calls over 2.85 hours inside one turn**, each returning the same ≤483-byte answer — 84% of all duplicate events in the entire corpus. A trivial `(name, normalised-args)` repeat counter flags it within ~5–20 iterations. |
+| **E4** | **T5 signal 3 is wrong as written and must be corrected.** Loop detection keys on **repetition regardless of error status**, not on repeated *failure*. | The failed-retry channel is essentially empty: only **612 bytes** of duplicate content corpus-wide had `isError:true`. Agents rarely retry the identical *failing* command; they repeat commands that **succeed** — polling, and lost-thread re-reads. My T5 wording ("same tool, same normalised arguments, **same error class**, ≥3 times") would have missed the dominant pathology entirely. |
+| **E5** | **Noise is duplication, not staleness.** 98.9% of redundant bytes are exact-duplicate call results; the superseded-read channel is nearly absent (137 events corpus-wide). | This retrospectively shrinks T15's hardest question. Aura's generation-binding definition remains correct and worth keeping — it also serves the audit pillar — but the empirically dominant case is the cheap one (exact duplicate), not the undecidable one (external change). |
+| **E6** | **Causation is formally untestable observationally here.** Only a randomised cleaner-on/cleaner-off A/B would settle it, and E1 means we will not build the thing that would need testing. | The constructs overlap by definition: drift's repeat component and noise's duplicate rule count the *same* events. Recorded so nobody re-litigates this with a better correlation. |
+
+**P1 is amended accordingly.** Loop detection was already sequenced first; E3 and E4 confirm the
+ordering and correct the definition. The v1 attention pillar is: a deterministic repeat counter
+over `(name, normalised-args)` with a windowed escalation, plus error and stall signals that are
+*not* assumed to co-occur with repetition.
+
 ---
 
 ## 2. What Observer is
@@ -1833,6 +1861,30 @@ the tax would dwarf the benefit. So cleaning must be:
   **gateway for live audit, watcher for baseline** — a division of labour, not the architectural
   split I first proposed and then withdrew after verifying `summarizer.ts:22-23,70,190` and
   `serialize.ts` against source.
+- **aura (round 2, Q1 addendum):** Round 1 answered Q1 with a case table (R1–R7). Correct but incomplete: cases are not a definition. Here is the decision procedure itself, model-free and computable from the ledger alone, sharpening two rules the table left soft. Cites re-verified against source this round: per-event cwd resolution is `request.workdir ?? config.cwd ?? process.cwd()` (`packages/shell/bash-local/src/index.ts:132`; `config.cwd` is `Volatile`, so it can change mid-session), header cwd is enforced (`packages/api/session-controller/src/agent.ts:339-340`, `SessionFormatHeader.cwd` at `session-format/src/types.ts:20`).
+
+  **The definition: supersession is generation binding, not pairwise comparison.**
+
+  An *artifact entry* is `(seq, toolName, canonicalTarget, contentHash, kind)` where `kind ∈ {read, write, exec}`. A *generation* of an artifact is one `contentHash`. Reads *observe* a generation; writes *attempt to advance* it. Then:
+
+  - `supersedes(a, b)` ⟺ `sameArtifact(a,b)` ∧ `a.seq > b.seq` ∧ `generationOf(a) = generationOf(b)` — **plus**, when generations differ, exactly one repair case: a ledger write W to the artifact with `b.seq < W.seq < a.seq` **and** `contentHash(a)` is *corroborated* (below). Then the pair is linked by W and `a` supersedes `b`.
+  - Everything else — hash differs, no intervening ledger write — is an **external change**: the session never observed the transition, so neither entry is authoritative. Undecidable, stays dirty, permanently. (R2′, now derived rather than asserted.)
+
+  *Corroboration* is the part R3 glossed. A post-write read `a` corroborates the write when either (i) the write's own result carries the new content or its hash and it matches `contentHash(a)`, or (ii) **two consecutive** post-write reads of the artifact agree on the hash (the write, then read₁, then read₂ with `hash(read₁) = hash(read₂)`). One lone read after a write is *not* corroboration: the write's result may not echo content, and an external edit between write and read would otherwise be silently absorbed into "the write's generation." Conservative default: uncorroborated → undecidable.
+
+  **R4, sharpened from "undecidable" to decidable-in-the-common-case.** Round 1 called same-command-different-output undecidable. Half wrong: the output of `npm test` is *not* semantically new information when the diff is volatile-only. Normalise the canonical args (strip timestamps/PIDs/temp paths) **and** diff the two outputs by line classes — unchanged, volatile-only (timestamps, durations, PIDs, progress bars, paths under temp), or substantive (changed error text, changed counts, changed exit code). If volatile-only: `supersedes` holds and the retry is R1-collapse with the class recorded. If substantive: undecidable, label only. Exit code is carried in the entry, so it participates in the diff. **Falsity risk:** a volatile-looking line class (e.g. `±0.3s` durations) that masks a semantic flip — mitigated by requiring exit code equality for the volatile-only verdict.
+
+  **Why generation binding is the right primitive (and not more machinery):** it makes R1/R2/R3 instances of one rule instead of three, gives ρ a denominator (dirt = entries superseded-but-present, over non-frozen entries), and — the payoff — it is the same structure the audit pillar needs: an entailment check on a checkpoint summary is "does the summary's claimed generation match the ledger's generation binding at that seq." One primitive, two pillars.
+
+  **Implementation shape (ledger-only, no surface reads):** a persistent map `artifactKey → ordered generations [g₀…gₙ]` with, per generation, the entry seqs that observed it. `supersedes` is then two map lookups and a comparison — O(1) amortised against the session log, computable at ingest, replayable offline over the 73 files (which round 1's retrospective study should also use as its corpus).
+
+  **Two conformance hazards the table missed, both verified in source this round:**
+
+  1. **CanonicalTarget must bind the resolving cwd, not the header cwd.** `config.cwd` is `Volatile` (`bash-local/src/index.ts:42-43`) — a session that `cd`s (or a tool invoked with an explicit `workdir`) can produce `read src/x.ts` meaning two different files under one header. So `canonicalTarget = hash(resolve(path, eventCwd))` where `eventCwd` is the header cwd *unless* the event carries `workdir`. When neither is recoverable (bare relative path, volatile cwd unknown), the entry's artifactKey is **unbound** — R-table default: dirty, permanently. This is stricter than round 1's `meta.cwd` note, and it is the fix for a real hole: two `read src/x.ts` calls in different workdirs would otherwise collapse as duplicates of one artifact and the wrong one becomes removable.
+  2. **`tool/result` pairing is not `tool_call_id`-equality across protocols.** On OpenAI wire the call and result carry matching ids; in DSH's surface the pair is positional (tool-pairing.ts balance array). The ledger keys pairs by *position within the event stream*, not by provider id, so the definition stays protocol-agnostic and T8's adapter split stays clean.
+
+  **Net answer to Q1:** `supersedes` = same artifact, later seq, same generation, or write-linked with corroboration; `removable` = supersedes ∧ all round-1 gates. Three undecidable classes remain and are permanent: external change (R2′), substantive output diff (R4), semantic plausibility (R5/R6 without a dropped-signal). That is the deterministic definition, and it is the one the 73-file study should test.
+
 - **human:**
 
 ---
@@ -1935,6 +1987,336 @@ pollutes the context it is paid to keep clean has failed at the one job the Huma
    labour, not a split. Both accepted — please confirm I have stated them as you meant them.
 
 - **aura:**
+  **Q1 answered plainly: no. But the premise behind the question inverts, and the inversion matters
+  more than the answer. On our first target injections are transient *by construction*. On
+  Anthropic they are worse than permanent — they must be replayed verbatim forever or they 400 the
+  agent. The monotonic-growth failure you filed T16 to prevent is real on Anthropic and impossible
+  on qwen; a different and worse failure takes its place on Anthropic instead.**
+
+  ---
+
+  **Q1 — No transient primitive exists on OpenAI Chat Completions or qwen. Stated plainly.**
+
+  - `clear_at` is Anthropic-only, behind beta `mid-conversation-system-clear-at-2026-08-21`. It
+    appears **nowhere** in `@earendil-works/pi-ai` (all 51 provider modules) nor anywhere in
+    `/home/dusan/deepseek-harness/packages/*/src/` — verified by grep for `clear_at|clearAt`; zero
+    hits outside Anthropic's own docs. `[SRC]`
+  - OpenAI's documented substitute for turn-scoped instructions is **cache isolation, not
+    clearing**: *"For instructions scoped to a single turn, place an explicit cache breakpoint
+    immediately before the latest developer message so the reusable prefix ends before that
+    message"* (`docs/guides/preserved-reasoning`, "Updating developer instructions" row). That
+    addresses **cost**; it does nothing about **accumulation**. `[DOC]`
+  - OpenAI's other append-only primitives (`configuration_update`, `additional_tools`, appended
+    `developer` message) are all permanent by design. None is described as self-clearing. `[DOC]`
+
+  **But three findings change what that means.**
+
+  **(a) On a stateless protocol, transience needs no primitive — it is the default.** OpenAI's own
+  words: *"While each text generation request is independent and stateless, you can still implement
+  multi-turn conversations by providing additional messages as parameters"*
+  (`docs/guides/conversation-state`). `[DOC]` The client rebuilds the array from **its own**
+  transcript every turn. Observer injects *downstream of the client, upstream of the provider*, so
+  **the client never learns the injection existed.** It appears in exactly one upstream request and
+  is gone from the next one automatically.
+
+  → **On qwen/Chat Completions there is no accumulation problem at all.** Twenty reads of the same
+  file do not produce twenty persistent labels; they produce one re-derived label set per request,
+  and the request after that starts clean. The mechanism you feared is structurally impossible on
+  target one. The budget question (Q2) becomes a **per-request** cap, not a cumulative one — which
+  is far easier.
+
+  **(b) On Anthropic the situation is worse than "permanent", and neither of us had it right.**
+  Walk the turns. At turn N Observer sends `A_N ++ [inj]`. The model produces thinking `T_N`,
+  bound to the prefix it was sent — which **includes `[inj]`**. The client records `T_N` and its
+  `signature`, but never sees `[inj]`. At turn N+1 the client sends `A_N ++ [asst(T_N)] ++ [user]`.
+  If Observer forwards that unchanged, the prefix before `T_N` no longer contains `[inj]` — and
+  Anthropic's rule is explicit: *"If the prefix differs from what you sent when the block was
+  produced, that block and every later thinking block fail the prefix check"*
+  (`docs/build-with-claude/preserved-thinking`). On an account created ≥2026-08-31 with
+  `prefix_mismatch_behavior` unset, that is a **400 on the supervised agent's request.** `[DOC]`
+
+  → **On Anthropic, Observer MUST replay every injection verbatim at a stable index on every
+  subsequent request, forever.** Not "leave it in place" as a courtesy — replay it or break the
+  agent. Consequences, all of them architectural:
+  - The gateway stops being a stateless proxy and becomes a **stateful transcript authority**. It
+    must persist per-session injection history and splice it into the client's array at stable
+    positions. That is a materially bigger component than "append a label", and it is the thing
+    that makes Anthropic injection expensive rather than merely permanent.
+  - **This is where your monotonic-growth fear actually lives.** Not on qwen — on Anthropic. And
+    there the escape is `clear_at`: the cleared message stays *structurally* present (index
+    preserved, so the prefix matches) while contributing *"nothing to what the model receives"* and
+    *"no input tokens"*. So the array grows in **element count** but not in **tokens**. That is the
+    correct Anthropic design, and it is the only one that is both prefix-legal and non-polluting.
+  - Anthropic's own worked example is exactly this shape: `messages[3]` is the previous request's
+    nudge *left in place*, `messages[6]` is this request's copy. `[DOC]`
+
+  **(c) On target one, mid-conversation system messages are not even supported by default — so the
+  injection *role* is constrained, not just the lifetime.** `compat-schema.js:177-179`:
+  `supportsMidConvoSystemMessages` **defaults to `false`** for OpenAI-compatible providers, with
+  the description *"When false, later system messages are folded into the leading system message."*
+  The implementation is `transcript.js:96-100`:
+
+  ```js
+  export function collapseSystemMessages(context) {
+      const head = getCurrentSystemMessage(context.messages);
+      const messages = context.messages.filter((message) => message.role !== "system");
+      return { messages: head ? [head, ...messages] : messages };
+  }
+  ```
+
+  and `resolveTranscript(context, supportsMidConvoSystemMessages)` collapses whenever the flag is
+  false. Bedrock and Gemini are commented as having no mid-conversation system messages at all
+  (`bedrock-converse-stream.js:25`, `google-shared.js:148`). `[SRC]`
+
+  → The harness deliberately **never sends** a mid-array system message to such a provider. If
+  Observer injects one anyway, we are sending a shape the client's own provider layer considers
+  unsupported. **So on qwen the injection must be either (i) folded into the leading system
+  message, or (ii) appended as a `user`-role message at the end.** Each has a sharp tradeoff:
+
+  | Option | Authority | Cache effect | Verdict |
+  |---|---|---|---|
+  | (i) fold into leading `system` | high (system authority) | **position 0** — any per-turn variation is a *total* cache miss every turn; byte-identical text is a one-time write then hits | Use **only** for byte-stable content: the disclosure preamble, the Goal Card. Never for re-derived labels. |
+  | (ii) append `user`-role at end | lower — may be read as user input, and it *is* in the user turn | prefix up to the client's last message is preserved; only the injection is uncached tail | Use for re-derived labels and nudges. This is the target-one equivalent of `clear_at`. |
+
+  Option (ii) has a second-order cache trap worth naming: OpenAI's implicit mode places its
+  breakpoint at *"the end of the latest eligible message"*, and eligible messages are **user
+  messages**, the last tool response in a group, and the last developer message in the initial
+  group (`docs/guides/prompt-caching`). `[DOC]` So appending a **user**-role injection *moves the
+  breakpoint past it*, and the next turn's prefix diverges at that point → miss. Appending a
+  non-eligible role leaves the breakpoint where the client put it. DSH's own Anthropic-path helper
+  already places breakpoints at the system prompt, the last tool, and **the last conversation
+  message** (`openai-completions.js:809-828`) — i.e. *before* any trailing injection, which is the
+  pattern we want. `[SRC]`
+
+  → **Rule: if Observer injects, it must ensure a cache breakpoint sits immediately before the
+  injection, or it silently degrades the client's cache efficiency on every subsequent turn.**
+  Given the measured 94.0% cache-read, that is the difference between a cheap feature and a
+  ruinous one. Note Anthropic documents that `cache_control` markers are **not** part of the prefix
+  check (`preserved-thinking`: *"neither are `cache_control` markers"*), so adding a breakpoint is
+  prefix-safe — but it is still a request mutation and must be logged under I2. `[DOC]`
+
+  **Three persistence regimes, and the inventory must distinguish them:**
+
+  | Regime | Protocols | Injection lifetime | Mechanism required | Growth risk |
+  |---|---|---|---|---|
+  | **R-stateless** | Chat Completions / qwen | **Transient automatically** — one request only | Re-derive and re-emit each turn; nothing to replay | **None** (structural) |
+  | **R-bound** | Anthropic Messages | **Permanent + must be replayed verbatim at a stable index** | Per-session injection history; `clear_at` for re-derivable content | **Real** — token growth unless `clear_at`; element-count growth regardless |
+  | **R-server-state** | OpenAI Responses with `previous_response_id` / `conversation` | **Unknown — likely persisted server-side** | Needs verification before any injection | **Unknown** |
+
+  R-server-state is the one I cannot answer from what I fetched: with server-held state, an
+  injected `input` item may be stored against the conversation object, and OpenAI documents no
+  clearing mechanism. **Recommend: no injection on R-server-state until tested.** That is a
+  concrete new research item (added to `protocol-fidelity.md` §7 as A15).
+
+  ---
+
+  **Attacking the inventory: the `Lifetime` column conflates three independent things, and that is
+  why "Goal Card — permanent, emitted once" is wrong on target one.**
+
+  "Emitted once" is impossible under R-stateless: the client rebuilds the array, so a once-emitted
+  Goal Card **vanishes on the next request**. It must be re-emitted every turn. Meanwhile on
+  R-bound it must be replayed at a stable index. Same semantic lifetime, completely different
+  emission rule. Split the column in three:
+
+  - **`semanticLifetime`** — `once | on-change | per-turn | per-verdict`. What the content *means*.
+  - **`emissionRule`** — `replay-verbatim | re-derive | omit-if-unchanged`. What the gateway does.
+  - **`persistenceMechanism`** — `transient-by-statelessness | observer-replay | leading-system-fold
+    | not-permitted`. Which regime it lands in, per protocol.
+
+  Revised table (your rows, corrected):
+
+  | Injection | semanticLifetime | emissionRule | target one (qwen) | Anthropic |
+  |---|---|---|---|---|
+  | Disclosure preamble | once | **replay-verbatim, byte-identical** | leading-`system` fold | mid-convo system msg, replayed |
+  | Goal Card | on-change (human-verified only) | replay-verbatim; re-derive only on verified change | leading-`system` fold | mid-convo system msg, replayed |
+  | Authoritative-state label set | per-turn *value*, but | **omit-if-unchanged** (hash compare) | appended `user`-role, transient | mid-convo system msg + `clear_at` |
+  | Per-turn nudge | per-turn | omit-if-unchanged + decay (Q4) | appended `user`-role, transient | `clear_at` only; **withhold if beta unavailable** |
+  | Grounding correction | per-verdict | replay-verbatim | appended `user`-role, transient | mid-convo system msg, replayed — **capped** (below) |
+  | Cache breakpoint before injection | per-request | n/a (not text) | explicit breakpoint | `cache_control` on last real block |
+
+  Two rows your draft is missing, both load-bearing:
+
+  - **The breakpoint row.** Not text, but a mutation Observer makes *because* it injects. Without it
+    the injection costs the client its cache position on every later turn.
+  - **A cap on permanent corrections.** On R-bound, corrections are replayed forever and
+    **consolidation is illegal** (rewriting or removing an earlier injection is a prefix edit →
+    400). So a session with 50 corrections carries 50 permanent messages and there is no legal way
+    to fold them. Hence: **when the permanent-injection budget is exhausted, Observer stops issuing
+    corrections and escalates to the human.** That is your stated preference — disable the write
+    path — and on Anthropic it is not a preference but the only legal option.
+
+  One clarification on "record the finding": when we withhold an injection, the finding is
+  **operator-facing only** — a dashboard entry and a log record. It must never become an injection
+  itself, or the withholding mechanism becomes a new source of accumulation.
+
+  ---
+
+  **Q2 — The label budget. Two budgets, because the regimes differ. Numbers defended.**
+
+  **Target one (R-stateless) — per-request cap.** Take the minimum of:
+
+  1. **1% of the context window.** At DSH's measured `contextWindow: 1000000` (recon §3) that is
+     10,000 tokens; at a 200K window, 2,000. Justification: Observer's own share must stay an order
+     of magnitude below the noise it is labelling. Measured duplicate/stale tool output runs
+     10–30% of tool mass (T4's ρ); at 1% we are ≤1/10th of the thing we are fixing.
+  2. **10% of the harness's own headroom.** DSH reserves `headroomTokens: 65536` and triggers at
+     `thresholdRatio: 0.8` (recon, T14). Observer's bytes come out of *that* headroom, so we may
+     take at most 6,553 tokens. Justification: Observer must never be the reason the incumbent's
+     pressure trigger fires early.
+  3. **25% of the mass the label set disambiguates.** A 2,000-token label set that disambiguates
+     50,000 tokens of duplicates is clearly worth it; one that disambiguates 1,500 is not. This is
+     the only term that ties cost to benefit, and it is the one that should bind most often.
+
+  **Selection under the cap:** rank candidate labels by disambiguated mass descending, take the
+  prefix that fits, and **drop whole labels — never truncate one.** A half-emitted label naming
+  three of five stale entries is worse than no label, because it is confidently incomplete.
+
+  **Anthropic (R-bound) — cumulative cap on the replayed set: 2% of context window, hard.**
+  Justification for 2% rather than 1%: replayed injections are permanent, so the cap must also
+  absorb corrections and the disclosure preamble, not just labels. At 110K mean prompt (recon §5)
+  that is ~2,200 tokens of Observer-authored content in a transcript, which keeps us unambiguously
+  below the agent's own noise. When 2% is reached: `clear_at`-eligible content is cleared (zero
+  tokens, structure retained), and if the remainder still exceeds the cap, **the write path
+  disables for that session** and a finding is emitted. No consolidation, because consolidation is
+  a prefix edit.
+
+  **Kill switches, all of them operator-visible:**
+  - Observer's share of any single request > **2%** → disable write path for the session.
+  - The same label set re-emitted **> 5 consecutive turns** with unchanged content → suppress until
+    state changes (this is also the Q4 fix).
+  - Any injected token total that would reduce effective headroom below **32,768** (half of DSH's
+    65,536) → withhold and record. Rationale: below that, Observer is materially advancing the
+    incumbent's compaction trigger, which means our "hygiene" pass is causing a *lossy model
+    summary* — the exact operation T14 refused to compete on. **This is the coupling nobody had
+    priced: over-injecting doesn't just add noise, it triggers compression.**
+  - Cumulative cache-read ratio falling more than **5 percentage points** below the session's
+    rolling baseline after an injection → disable injections and alert. This is measurable from
+    `usage.cacheReadTokens`, which DSH already emits.
+
+  On your framing — *"I would rather Observer disable its own write path than become the largest
+  source of noise"* — agreed, and I'd strengthen it: **the write path should default to disabled
+  and be enabled per session by a lease** (T1's lease, not a confidence number). No lease, no
+  injection, ever. That makes the fail-safe the default state rather than a reaction.
+
+  ---
+
+  **Q3 — Is clearing *our own* label safe under thinking-block binding, on a client that never
+  opted into the beta? Conditionally yes, with one real risk that is not the one you named.**
+
+  **Why it is safe when done correctly.** The mechanism is *structural presence*, not content.
+  Anthropic's example is explicit: the cleared nudge at `messages[3]` *"adds nothing to what the
+  model receives and costs no input tokens, but **because it's still in the array**, the thinking in
+  `messages[4]` stays valid."* `[DOC]` The prefix check compares what was sent; a message that is
+  still present at the same index with the same identity satisfies it regardless of whether the
+  provider renders its content. So a cleared Observer label preserves validity **iff**:
+  1. the message **remains in the array at the same index** — never removed;
+  2. it is replayed **byte-identically** every subsequent request;
+  3. nothing before it changes.
+
+  Since Observer is the party constructing the upstream request, (1)–(3) are entirely within our
+  control — but only if the gateway holds the injection history (R-bound requirement above).
+  **A stateless proxy cannot use `clear_at` safely.** That is the real cost, and it is the same
+  cost as replay: the gateway must be stateful.
+
+  **Authorship is irrelevant to the rule.** Nothing in the docs conditions the prefix check or
+  `clear_at` on who authored the message; both are properties of the message and its position.
+  `[DOC]`-derived. I could not find any statement that provider-authored and client-authored
+  messages are treated differently, and the docs' own example uses a harness-authored nudge —
+  which is exactly our case. Mark as **verified by construction, not by explicit statement**.
+
+  **On a client that never opted into the beta — the risk is not the request, it's the response.**
+  Observer is the upstream client, so it can set `anthropic-beta: mid-conversation-system-clear-at-2026-08-21`
+  itself; the supervised agent never sees the header and cannot object to it. The documented
+  precedent for header-absent failure is `block_binding`, which *"returns a 400 error whose message
+  ends `block_binding: Extra inputs are not permitted`"* — so sending `clear_at` without the header
+  would very likely 400 the agent's request. `[DOC]` **Therefore Observer must add the header
+  whenever it sends `clear_at`.**
+
+  But adding a beta header changes the **response**: `thinking-binding-controls-2026-08-01` adds a
+  top-level `input_transformations` array to every response, and the two headers are typically sent
+  together. **The untested question is whether the supervised agent's SDK tolerates a response field
+  it did not ask for.** Most SDKs ignore unknown fields, but some are strict, and a strict client
+  would break on a header *we* added — an I1 violation caused by an optimisation. This is research
+  gap **A8**, and it must be a **blocking test** before any Anthropic injection ships, not an
+  assumption. Interim rule: **do not add beta headers the client did not send.** Which means, on a
+  client that never opted in, `clear_at` is unavailable → **withhold the injection and record the
+  finding**, exactly your fallback. The fallback is not a compromise; on R-bound without the beta
+  it is the only safe behaviour.
+
+  ---
+
+  **Q4 — Reconciling with T11. The inventory makes T11 *better*, but only under two rules that must
+  be explicit, because the default implementation makes it much worse.**
+
+  The round-1 T11 finding is right: attribution makes text salient, and salient text behaves like a
+  fresh instruction regardless of content. Re-emitting a label every turn therefore compounds —
+  by turn 40 the agent has seen forty supervisor messages and the supervisor is the most recurrent
+  voice in its context. That is how Observer becomes the task.
+
+  Two rules fix it, and both belong *in* the inventory rather than beside it:
+
+  1. **Cadence is `omit-if-unchanged`, never `per-turn`.** Labels are pure functions of ledger
+     state, so equality is a hash comparison and suppression is free. Emission becomes **on change
+     only**. Combined with the kill switch above (suppress after 5 consecutive identical
+     emissions), a stable session sees the label set *once*, not every turn. This single rule
+     removes most of the compounding, and it also removes most of the cost.
+  2. **Declarative, not imperative.** *"Authoritative current state: `src/x.ts` = entry #1233"* —
+     reference material. Not *"You must use entry #1233"* — an instruction. Salience compounds with
+     imperatives because each one reads as a new directive to comply with; a declarative index reads
+     as a table the agent may consult. This is exactly T11's "clearly attributed vs commanding"
+     line, and it is a wording constraint that must be enforced by the **template registry**, not
+     left to whoever writes the string. Under I3 the template authors the sentence, so the template
+     is the control point — make imperative forms unrepresentable.
+
+  Two further constraints that fall out:
+
+  - **One consolidated label set per request, never one label per artifact.** Twenty duplicate reads
+    produce one message with a bounded number of rows (top-N by disambiguated mass), not twenty
+    messages. Row count is capped by the Q2 budget.
+  - **Under R-stateless this is nearly free**; under R-bound each *new* label set is a permanent
+    array element even when cleared, so element count grows monotonically with the number of
+    *changes*. Hence on Anthropic the `omit-if-unchanged` rule is not a nicety — it is the only
+    thing bounding array growth, and the 5-turn suppression should probably be 1 (i.e. never
+    re-emit an unchanged set at all).
+
+  So: the inventory as drafted **does** make T11 worse, because "per-turn nudge — transient" plus
+  "stale-duplicate label — at most one live label set" still permits per-turn re-emission. With
+  `omit-if-unchanged` + declarative templates + consolidation it makes T11 strictly better than no
+  inventory at all. The difference is entirely in the `emissionRule` column, which your draft did
+  not have.
+
+  ---
+
+  **Q5 — Minutes confirmed, with one refinement.** Both statements are exactly what I meant:
+  `detectableFrom` for stateful Responses (no history on the wire → neither signature-match nor
+  surface-diff works), and gateway-for-live-audit / watcher-for-baseline as a division of labour
+  rather than the architectural split I proposed and withdrew.
+
+  Refinement: make it **three** values, not two — `detectableFrom: 'wire-signature' |
+  'wire-differential' | 'log-only'`. Signature-match and surface-diff are both wire-based but carry
+  very different confidence (the first is O(1) and near-zero false positives; the second is a
+  heuristic that also fires on forks, retries and agent-side truncation), and the audit report
+  should carry that distinction rather than collapsing both into `'wire'`. Each registry entry
+  should also carry `lastVerifiedAgainst` versions, per the signature-drift warning already in T14.
+
+  ---
+
+  **Net position on T16.** The inventory is the right instrument and the re-derivation principle is
+  right, but it needs the three-column split (`semanticLifetime` / `emissionRule` /
+  `persistenceMechanism`) because lifetime alone does not determine behaviour — the *regime* does.
+  Target one is the easy case and should ship first: injections are transient by construction, so
+  the design is "re-derive, omit-if-unchanged, append as a trailing non-eligible-role message after
+  a breakpoint, under a per-request cap." Anthropic is the hard case and should ship **last**,
+  because it requires a stateful injection history, verbatim replay at stable indices, `clear_at`
+  for anything re-derivable, a beta header we must add ourselves, and a blocking test (A8) that we
+  have not run. **Sequencing injection support qwen-before-Anthropic is the opposite of what the
+  round-1 protocol ordering implied, and it falls straight out of the regimes.**
+
+  And one thing to record before it is discovered late: **over-injection triggers the incumbent's
+  lossy compression.** Observer's bytes come out of DSH's 65,536-token headroom, so a chatty
+  supervisor advances the 0.8 pressure trigger and causes a *model-authored summary* — the one
+  operation T14 refused to compete on, invoked indirectly by us. The headroom kill switch above is
+  not a politeness rule; it is what stops pillar 3 from causing pillar 3's own worst outcome.
 - **human:**
 
 ---
@@ -2096,3 +2478,18 @@ Newest at the bottom. One entry per round per participant.
   I5; T10's package boundaries given that pillar 3 is now labelling-plus-audit rather than
   compaction; and the vertical slice, retargeted to OpenAI Chat Completions.
 
+
+### Round 2
+
+- **aura (2026-11-09, T15 Q1):** Delivered the deterministic `supersedes` definition the round-1
+  table implied but never stated: **generation binding** — an artifact entry `(seq, tool,
+  canonicalTarget, contentHash, kind)`, a generation per contentHash; `supersedes` holds on same
+  artifact + later seq + same generation, with one write-linked repair case gated on corroboration
+  (write echo or two consecutive agreeing post-write reads). Sharpened R4 to decidable when the
+  output diff is volatile-only with equal exit code. Refined two conformance hazards with source
+  cites: per-event cwd resolution (`bash-local/src/index.ts:132`, `config.cwd` is `Volatile`) means
+  `canonicalTarget` must bind the *event* cwd, not the header cwd; and pair-binding is positional
+  (tool-pairing.ts), not `tool_call_id` equality, keeping it protocol-agnostic for T8. Three
+  classes remain permanently undecidable: external change, substantive output diff, semantic
+  plausibility. This definition is also the audit primitive (checkpoint entailment = generation
+  match at seq) and is testable offline over the 73-file corpus.

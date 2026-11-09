@@ -791,9 +791,102 @@ Across **51 provider modules** (`anthropic`, `openai`, `openai-codex`, `azure`, 
   usage must tolerate absence**, and Observer must never *add* `stream_options` to a client's
   request without logging it as a mutation (it changes the chunk sequence the client receives).
 
+### 4A.6 Mid-conversation system messages are **not** supported by default — this constrains injection
+
+`[SRC]` `compat-schema.js:177-179` (OpenAI-compatible), `:213-215` (Responses), `:291-293`
+(Anthropic), `:311-313` (Mistral), `:320-322`:
+
+```
+supportsMidConvoSystemMessages: "Whether the exact model accepts system or developer messages
+  after the conversation has started. When false, later system messages are folded into the
+  leading system message."    default: false
+```
+
+The fold is implemented in `utils/transcript.js:96-105`:
+
+```js
+export function collapseSystemMessages(context) {
+    const head = getCurrentSystemMessage(context.messages);
+    const messages = context.messages.filter((message) => message.role !== "system");
+    return { messages: head ? [head, ...messages] : messages };
+}
+export function resolveTranscript(context, supportsMidConvoSystemMessages) {
+    return supportsMidConvoSystemMessages ? context : collapseSystemMessages(context);
+}
+```
+
+Two providers comment the absence explicitly: `bedrock-converse-stream.js:25` *"Bedrock has no
+mid-conversation system messages; fold them into the leading prompt"*; `google-shared.js:148`
+*"Gemini has no mid-conversation system messages"*. `[SRC]`
+
+> **Consequence for Observer injection (T16).** Where this flag is false — the **default** — the
+> harness never sends a mid-array system message, so a MITM that appends one is sending a shape the
+> client's own provider layer treats as unsupported. On target one an injection must therefore
+> either be **folded into the leading system message** (position 0: any per-turn variation is a
+> total cache miss every turn) or **appended as a trailing `user`-role message** (prefix preserved,
+> but lower authority, and it moves OpenAI's implicit breakpoint — §4A.7).
+>
+> **And there is no `clear_at` equivalent.** Grep for `clear_at|clearAt` across all 51 `pi-ai`
+> provider modules and all of `/home/dusan/deepseek-harness/packages/*/src/` returns **zero hits**.
+> `clear_at` exists only in Anthropic's docs behind beta
+> `mid-conversation-system-clear-at-2026-08-21`. `[SRC]`
+>
+> OpenAI's documented substitute for turn-scoped instructions is **cache isolation, not clearing**:
+> *"For instructions scoped to a single turn, place an explicit cache breakpoint immediately before
+> the latest developer message so the reusable prefix ends before that message"*
+> (<https://developers.openai.com/api/docs/guides/preserved-reasoning>). That addresses cost; it
+> does nothing about accumulation. `[DOC]`
+
+### 4A.7 Cache breakpoint placement interacts with any trailing injection
+
+`[DOC]` <https://developers.openai.com/api/docs/guides/prompt-caching> — in implicit mode OpenAI
+places a breakpoint at *"the end of the latest eligible message"*, where eligible messages are
+**user messages**, *"the last tool response in a consecutive group of tool responses"*, and *"the
+last developer message in the initial consecutive group of developer messages."*
+
+→ Appending a **user-role** injection moves the breakpoint past it, so the next request's prefix
+diverges at that point and misses. A trailing non-eligible role leaves the breakpoint where the
+client put it.
+
+`[SRC]` DSH already implements the safe pattern — `openai-completions.js:801-828`:
+`applyAnthropicCacheControl` adds `cache_control` to (1) the system prompt, (2) the last tool, and
+(3) **the last conversation message** (`addCacheControlToLastConversationMessage` walks backwards
+for the last `user`/`assistant`/`tool`) — i.e. a breakpoint *before* any trailing injection. Gated
+on `compat.cacheControlFormat === "anthropic"`.
+
+> **Rule derived:** if Observer injects, it must ensure a breakpoint sits immediately before the
+> injection, or it degrades the client's cache efficiency on **every subsequent turn**. Anthropic
+> documents that `cache_control` markers are not part of the thinking prefix check (*"neither are
+> `cache_control` markers"*), so adding one is prefix-safe — but it is still a request mutation and
+> must be logged under I2.
+
+### 4A.8 Persistence regimes for a MITM injection
+
+Combining §4A.6 with Chat Completions statelessness (§5.3, `[DOC]` *"each text generation request
+is independent and stateless"*) and Anthropic's prefix check (§3.1):
+
+| Regime | Protocol | Injection lifetime | Why |
+|---|---|---|---|
+| **R-stateless** | Chat Completions / qwen | **Transient automatically** — present in exactly one upstream request | The client rebuilds the array from its own transcript and never learns of a downstream injection |
+| **R-bound** | Anthropic Messages | **Permanent, and must be replayed verbatim at a stable index** | The injection joins the prefix that later thinking binds to; omitting it next request fails the prefix check (400 on post-2026-08-31 accounts) |
+| **R-server-state** | Responses + `previous_response_id` / `conversation` | **Not verified** — likely persisted server-side | History is server-held; no clearing mechanism documented (gap A15) |
+
+The R-bound derivation, turn by turn: at turn *N* Observer sends `A_N ++ [inj]`; the model's
+thinking `T_N` binds to a prefix **including** `[inj]`; the client records `T_N` but never sees
+`[inj]`; at turn *N+1* the client sends `A_N ++ [asst(T_N)] ++ [user]`, so unless Observer
+re-splices `[inj]` at the same index, the prefix before `T_N` differs from what was sent when it
+was produced → *"that block and every later thinking block fail the prefix check."* `[DOC]`
+
+> **A stateless MITM proxy is therefore insufficient for Anthropic injection.** Safe injection
+> there requires the gateway to persist per-session injection history and replay it at stable
+> indices — i.e. to become a transcript authority. `clear_at` bounds *token* growth to zero but not
+> *element-count* growth, and it needs a beta header Observer must add itself (gap A8).
+> Sequencing consequence: **injection support is cheaper on Chat Completions than on Anthropic**,
+> the opposite of the round-1 protocol ordering.
+
 ---
 
-
+## 5. OpenAI Responses API — event stream and statefulness
 
 Sources: <https://developers.openai.com/api/docs/guides/streaming-responses> `[DOC]`,
 <https://developers.openai.com/api/docs/guides/function-calling> `[DOC]`,
@@ -997,6 +1090,9 @@ Not verified from documentation. Each is a place this document could still be wr
 | A12 | Client HTTP read-timeout defaults for DSH / Claude Code / generic agents | **Not documented anywhere** — must be measured empirically per target (P2) |
 | A13 | Anthropic server-side compaction / context-editing parameter details | Not fetched — pages exist (`/build-with-claude/compaction`, `/context-editing`) and should be read before designing T4 |
 | A14 | OpenAI `/responses/compact` and `context_management` parameter details | Not fetched — `/api/docs/guides/compaction` should be read before designing T4 |
+| A15 | Whether an `input` item injected into a **stateful** Responses request (`previous_response_id` / `conversation`) is persisted server-side against the conversation object, and whether any clearing mechanism exists | **Not documented** in anything fetched. Regime `R-server-state` in §4A.8 is therefore unresolved. **Recommend: no injection on stateful Responses until tested.** |
+| A16 | Whether adding `cache_control` / an explicit `prompt_cache_breakpoint` to a client's request is tolerated by all OpenAI-compatible endpoints (it is a non-standard field on many) | `[ASSUMPTION]` — DSH gates it behind `compat.cacheControlFormat === "anthropic"`, which implies most OpenAI-compatible endpoints do **not** accept it. Must be probed per provider before relying on §4A.7's breakpoint rule |
+| A17 | Whether qwen/DashScope documents any integrity check on `reasoning_content` when replayed | **Not documented**; no provider doc was reachable. Regime A (§4A.2) is inferred from the harness implementation only — treat "no protection" as *unverified absence*, not verified absence |
 
 **Recommended follow-up fetches before the architecture spec is written:** A13, A14 (both
 directly determine whether Observer should implement compaction at all or delegate it to the
