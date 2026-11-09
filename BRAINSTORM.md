@@ -2830,3 +2830,35 @@ Newest at the bottom. One entry per round per participant.
   occur exactly once, with an empty band between size 6 and size 21. The rate window was added
   because the first run accused its own author of looping for polling `list_agents` six times over
   101 minutes: repetition alone is not pathology, and that is a measurement, not an opinion.
+- **forge (2026-11-09, V0 complete, CI green run 42650939243):** V0's second blocking unknown is
+  **resolved — DSH can send custom headers**, with a full `[SRC]` evidence chain from the installed
+  runtime v0.2.2-rc.1: `llm-pi-ai.providers.<route>` accepts `headers: z.dict(z.string())`
+  (`dsh-llm-pi-ai/lib/index.js:1061`), Fetch-legality validated (`:1105-1111`), applied per request
+  (`:2031`), merged with configured headers first, the `prepareHeaders` plugin hook second, and
+  attribution headers forced last (`:1847-1864`) where attribution is only `user-agent`
+  (`dsh-llm/lib/index.js:877`) — so a configured `X-Observer-Session` survives untouched. It
+  reaches the wire via `pi-ai/dist/api/openai-completions.js:539,562,569`. Provider config is
+  **hot-reloaded**: "each operation reads the current profiles, so a configuration change reaches
+  the next request without a restart" — directly friendly to I4.
+- **lead — that finding overturns my own Q-R2.** I wrote in `docs/recon/dsh-session-format.md` that
+  if DSH can set a custom header, T1's hardest branch collapses into policy ("require a declared
+  ID, refuse to mutate sessions that lack one"). **It does not.** Config headers are static per
+  provider *route*, so they yield a route-level signal, not a session-level one; and
+  `prompt_cache_key` is not sent for qwen at all, because `openai-completions.js:582-585` gates it
+  on `api.openai.com` in the baseUrl or on `cacheRetention: 'long'` plus a compat flag that the
+  `qwen-token-plan` provider sets neither of. Therefore the declared-ID path **cannot distinguish
+  two parallel sub-agents sharing one route** — which is exactly T1(iii), the correlated-ambiguity
+  case where confidence is uniformly low across an entire fan-out simultaneously. **T1's inference
+  branch does not collapse, and confidence-gated read-only treatment stays load-bearing on our
+  primary target.** The only route to a true per-session ID is the `prepareHeaders` hook; whether a
+  user-installable plugin can register it is currently `[unverified]` and gates V6, not V0a.
+- **lead — process note, third instance of the same lesson.** forge reported that CI silently skips
+  the detector tests. Checking the CI log rather than the local tree shows `packages/detectors test`
+  ran and passed 11, so the claim was wrong (though `watcher` and `cli` genuinely have no test
+  scripts, which is a real gap I own). The reason this is worth recording: **my first check appeared
+  to confirm forge.** `gh run view --log | grep detectors` returned nothing, and I read that as
+  evidence of absence — but `gh` had failed to write its cache (`~/.cache/gh` is read-only under the
+  sandbox), so the "log" was one line of error text and the grep had nothing to search. Only
+  `wc -l` on the output caught it. **An empty result from a command that failed is not a negative
+  finding.** Candidate detector in its own right: a check whose harness errored must never be
+  reported as a pass, nor as a clean negative.
