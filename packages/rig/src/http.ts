@@ -28,6 +28,13 @@ export const HOP_BY_HOP_HEADERS: readonly string[] = [
   'proxy-connection',
 ]
 
+/**
+ * Gap between the two TCP writes of a `splitAfterBytes` scripted write. A micro-delay
+ * (not 0) so the two segments stay distinct arrivals on loopback under load, which the
+ * fixture loader mirrors in `expectedArrivals` (nominal gap of the split continuation).
+ */
+export const SPLIT_GAP_MS = 5
+
 export function isHopByHop(name: string): boolean {
   const n = name.toLowerCase()
   return HOP_BY_HOP_HEADERS.includes(n) || n.startsWith('proxy-')

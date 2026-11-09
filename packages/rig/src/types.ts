@@ -192,18 +192,24 @@ export interface ClientResult {
   requestBytesWritten: number
   /** Raw socket data events (framing bytes included) — diagnostics only, never compared directly. */
   wireEvents: ArrivalEvent[]
-  head?: DecodedHead
+  /**
+   * The decoded response head, or `undefined` when no head ever arrived (connect
+   * failure, timeout before any byte, transport death mid-head). The absence is a
+   * distinct observed fact — callers must branch on it, and `diffRuns` treats a
+   * missing baseline head as a rig error and a missing SUT head as a protocol diff.
+   */
+  head?: DecodedHead | undefined
   /** Decoded body arrivals: one entry per socket data event that carried >=1 decoded body byte. */
   bodyEvents: ArrivalEvent[]
   body: Buffer
   /** Incremental hash (updated per arrival, never re-hashed from a buffer). */
   bodySha256: string
   /** First socket byte (head counts) minus request-written instant. */
-  ttfbMs?: number
+  ttfbMs?: number | undefined
   framingComplete: boolean
   /** Present when !framingComplete: decoded body bytes received before the socket died. */
-  truncatedAtBodyByte?: number
-  socketError?: string
+  truncatedAtBodyByte?: number | undefined
+  socketError?: string | undefined
   timedOut: boolean
   aborted: boolean
   /** Request-written instant -> socket closed. */
@@ -223,10 +229,10 @@ export interface UpstreamRequestCapture {
   bodySha256: string
   /** Full declared content-length received. */
   bodyComplete: boolean
-  declaredContentLength?: number
+  declaredContentLength?: number | undefined
   clientClosedEarly: boolean
   headAtMs: number
-  bodyDoneAtMs?: number
+  bodyDoneAtMs?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +334,8 @@ export interface FidelityRunOptions {
 
 export interface RunSide {
   client: ClientResult
-  upstream: UpstreamRequestCapture
+  /** Absent when the far end never received a request at all (e.g. a SUT that refused to forward). */
+  upstream?: UpstreamRequestCapture | undefined
 }
 
 export interface FidelityRunReport {
