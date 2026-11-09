@@ -25,6 +25,29 @@
     "### Q-R3 (T8): does the proposed type survive contact with this format?",
     "### Q-R4 (T13/T9): who wins, Observer or the harness, when policies conflict?"
   ],
+  "docs/research/dmn-benchmark-results.md": [
+    "# DMN Decision-Layer Benchmark — Results",
+    "## 1. Environment (disclosed per plan §4)",
+    "## 2. Workload",
+    "## 3. Results",
+    "### B1/B2 — evaluation latency, whole decision layer (all 10 decisions, one global context)",
+    "### B3 — allocation: **NOT MEASURED**",
+    "### B4 — bundle load (XML → moddle → `Definition`)",
+    "### B5 — load-time checks",
+    "### Compile cost",
+    "## 4. Root cause of the stock-engine number",
+    "## 5. The architectural conclusion — and where I was wrong",
+    "### What must change as a result",
+    "## 6. A hazard found by accident, now pinned as a test",
+    "## 7. Status of the plan's questions",
+    "## 8. Still not measured (plan §8, unchanged)",
+    "## 9. Independent second run — corroboration, the column/rule cost curve, and four silent failures",
+    "### 9.1 Corroboration of the stock-engine cost",
+    "### 9.2 The cost curve: columns dominate, rules are nearly free",
+    "### 9.3 Four more silent failures, and the gate that catches all of them",
+    "### 9.4 Where this run differs from §3–§7, and who wins",
+    "### 9.5 What this run adds to the plan's status table (§7)"
+  ],
   "docs/research/dmn-execution-landscape.md": [
     "# DMN Execution Landscape for Node 26 — Cited Survey",
     "## 0. Verdict",
@@ -182,7 +205,8 @@
     "### A.2 Integer inputs, and how they stay enumerable",
     "### A.3 Per-table products — 195 cells total",
     "### A.4 Global completeness is not decidable, and should not be claimed",
-    "### A.5 What changes if a domain grows"
+    "### A.5 What changes if a domain grows",
+    "## Addendum B — Execution strategy amended by measurement (2026-11-09)"
   ],
   "docs/spec/dmn-benchmark-plan.md": [
     "# DMN Decision-Layer Benchmark — Methodology",
@@ -198,6 +222,25 @@
     "## 7. Pass / fail",
     "## 8. What this benchmark cannot measure",
     "## 9. Anti-gaming rules"
+  ],
+  "docs/spec/dmn-benchmark-results.md": [
+    "# DMN Decision-Layer Benchmark — Results",
+    "## 1. Environment (mandatory, per plan §4)",
+    "## 2. The fixture, and what it cost me to trust it",
+    "## 3. L1 — evaluation latency",
+    "### 3.1 Per-decision calls (B1 as literally specified)",
+    "### 3.2 One root call — the production shape",
+    "## 4. Why it is slow — the cost is columns, not rules",
+    "### 4.1 Column count (rules fixed at 4)",
+    "### 4.2 Rule count (columns fixed at 4)",
+    "### 4.3 What this means for the DRD as drawn",
+    "## 5. B3 — allocation: reported as unusable, not as a number",
+    "## 6. L2 - bundle load (B4): passes with margin",
+    "## 7. Pass / fail, against the gates fixed in the plan",
+    "## 8. What the design should do about it",
+    "## 9. What this benchmark cannot measure",
+    "## 10. Reproducing this",
+    "## 11. Open items I could not close this round"
   ],
   "docs/spec/vertical-slice-tasks.md": [
     "# Vertical Slice — Task Breakdown (v1)",

@@ -27,7 +27,6 @@ import { isHopByHop } from './http.js'
 import type {
   ByteRegion,
   FidelityDiff,
-  FidelityRunOptions,
   HeaderIssue,
   HeaderPairs,
   ResolvedFixture,
@@ -242,7 +241,10 @@ export function diffRuns(
   fixture: ResolvedFixture,
   baseline: RunSide,
   sut: RunSide,
-  opts: Pick<FidelityRunOptions, 'headerIgnore' | 'timing'> = {},
+  opts: {
+    headerIgnore?: readonly string[] | undefined
+    timing?: { mode?: 'strict' | 'loose'; gapToleranceMs?: number; ttfbBudgetMs?: number } | undefined
+  } = {},
 ): FidelityDiff[] {
   const diffs: FidelityDiff[] = []
   const extraIgnore = new Set((opts.headerIgnore ?? []).map((n) => n.toLowerCase()))

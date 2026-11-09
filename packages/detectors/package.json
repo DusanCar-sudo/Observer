@@ -1,0 +1,12 @@
+{
+  "name": "@observer/detectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Observer observe-only detectors. Pure functions over normalised events; no I/O, no mutation, no model calls.",
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc -p tsconfig.json --typeRoots ../rig/node_modules/@types"
+  },
+  "scriptsComment": "typecheck borrows @types/node from packages/rig until these packages get their own devDeps. TEMPORARY: pnpm strict isolation means a package with no node_modules cannot resolve @types/node. Fix by adding typescript+@types/node as devDeps here and running pnpm install, once packages/rig is no longer mid-flight."
+}

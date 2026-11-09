@@ -15,7 +15,7 @@ const base = new Definition(new Context(rootElement));
 function cachedExpressions() {
   const memo = new Map();               // src -> Map(valueKey -> boolean)
   let hits = 0, misses = 0, exprCalls = 0;
-  return { stats: () => ({ hits, misses, exprCalls, entries: [...memo.values].reduce((s,m)=>s+m.size,0) }),
+  return { stats: () => ({ hits, misses, exprCalls, entries: [...memo.values()].reduce((s,m)=>s+m.size,0) }),
     unaryTest(test, context) {
       const v = context['?'];
       const key = (v === null || typeof v !== 'object') ? `${typeof v}:${v}` : JSON.stringify(v);

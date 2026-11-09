@@ -687,3 +687,64 @@ declare more than five inputs.** A sixth input means the decision should be spli
 composed in the DRD, which keeps each product small *and* keeps each reviewable. That is a
 constraint on the model, not on the tooling, and it is worth adopting now while there are ten tables
 rather than after there are forty.
+
+---
+
+## Addendum B — Execution strategy amended by measurement (2026-11-09)
+
+**Supersedes the execution recommendation implied by §2.1 and by round 3.** Full numbers in
+`docs/research/dmn-benchmark-results.md`.
+
+Measured on the 10-decision / 195-rule synthetic bundle: evaluating the whole decision layer with
+`dmn-elements` costs **20.45 ms p50 / 27.73 ms p99**. That is **46× over** the 0.5 ms p50 allocation
+proposed in `dmn-benchmark-plan.md` §2, and larger than T7's *entire* 15 ms pass-through budget.
+Root cause: `dmn-elements/src/Expressions.js` calls `feelin.unaryTest(sourceString, ctx)` for every
+cell of every rule on every evaluation — **FEEL is re-parsed from source each time**, and `feelin`
+exposes no way to evaluate a pre-parsed tree. Memoising unary tests recovers 5.6× (→ 3.67 ms), still
+7× over budget.
+
+**Amended strategy — compile by exhaustion at build time; the engine is the oracle, not the
+runtime.** Because §2.1 already requires every input to be a finite enumeration, a decision table
+*is* a finite function. So enumerate each table's full input product, ask the engine for the answer
+at **every** cell once at build time, and store the results in a `Map`. Runtime evaluation is key
+construction plus one hash lookup per decision: **0.0058 ms p50 / 0.0107 ms p99 — ~86× under budget.**
+
+Equivalence is **total, not sampled**: all 195 cells compared engine-vs-compiled, 0 mismatches, now
+a CI test. Integer inputs are exhaustive per band, sound because bands derive from the table's own
+literals (Appendix A §A.2).
+
+Consequences, all of which amend earlier text in this document:
+
+1. **The build pipeline gains a compile step**: XML → validate → compile by exhaustion → emit
+   artifact + validation receipt. Measured cost ~565 ms for 195 cells. Runtime never parses XML and
+   never loads the engine.
+2. **Static validation moves to build time.** B5c (gap/overlap product) measured **377.5 ms**, 7.5×
+   the 50 ms hot-reload target, so it cannot run at load. B5a (static identifier extraction,
+   1.07 ms) and B5b (synthetic non-null evaluation, 23.07 ms) *do* fit at load and stay there. The
+   bundle carries a validation receipt; runtime verifies the receipt against the bundle hash instead
+   of re-deriving it.
+3. **Q7's hot reload becomes cheap**, resolving open item D6 in the direction `dmn-benchmark-plan.md`
+   §6 predicted and Appendix A §A.3 doubted. Reload is loading a small artifact, not re-validating.
+4. **The dependency risk in D3 improves rather than worsens.** Since `dmn-elements` never runs in
+   production, a compromised or behaviourally-changed engine cannot silently alter behaviour — it
+   alters the compiled artifact, which the golden-cell diff and the exhaustive equivalence test
+   catch at build time. This is strictly safer than the round-3 recommendation to run it live.
+5. **Appendix A amendment — `cmp` inputs must move into the projection.** Two-variable comparisons
+   (`labelSetTokens <= budgetCapTokens`) force the runtime key function to re-implement a fragment
+   of FEEL. It is currently whitelisted and shape-checked at compile time (`CMP_OPS` in
+   `packages/dmn-conformance/src/compile.mjs`), but the clean answer is for the projection to
+   compute the boolean and pass it as an enum input, so the policy layer contains **no** comparison
+   logic and the compiled path duplicates no FEEL semantics. Preferred; do it before the real tables
+   are authored.
+6. **New CI gate: global element-id uniqueness.** A duplicated id (`<informationRequirement id="r1">`
+   colliding with `<rule id="r1">`) was observed to make that rule **silently stop matching** — no
+   error, no warning. Pinned as a test. Ids must be generated mechanically, never hand-written. This
+   is the same failure shape as the FEEL null hazard: a silent no-op that looks healthy.
+
+**Correction to my own round-3 position, for the record.** I argued against lead's "execute with a
+narrow subset compiled once at load" and recommended running the engine directly, on the grounds
+that reimplementing an evaluator forfeits the TCK as an independent check. The measurement shows the
+hybrid is right: lead's compile-at-load instinct was correct, and my don't-reimplement objection is
+*satisfied* rather than defeated, because we did not write an interpreter — we enumerate a finite
+domain and record the engine's answers. The engine stays the semantic authority and the TCK stays the
+anchor on the engine.

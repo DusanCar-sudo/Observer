@@ -147,7 +147,9 @@ async function handleConnection(
     }
 
     socket.on('data', (data: Buffer) => {
-      raw = raw.length === 0 ? Buffer.from(data) : Buffer.concat([raw, data])
+      // Only accumulate raw bytes until the head is captured (headBytes slicing);
+      // after that, appending every body event would be O(n^2) on a 5 MB+ request.
+      if (!headDone) raw = raw.length === 0 ? Buffer.from(data) : Buffer.concat([raw, data])
       if (!headDone) {
         let rest: Buffer
         try {
