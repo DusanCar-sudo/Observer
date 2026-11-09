@@ -169,6 +169,17 @@ describe('raw-byte capture fidelity', () => {
     expect(decoded.body[1]).toBe(0x8b)
   }, 60_000)
 
+  it('stores brotli responses COMPRESSED as received (task-2 criterion names gzip AND br)', async () => {
+    const fixture = await fx('res-br-nonstream')
+    const r = await runViaTap(fixture)
+    expect(r.meta.status).toBe('complete')
+    const wire = readFileSync(path.join(r.captureDir, 'response.wire.bin'))
+    expect(wire.toString('latin1')).toContain('content-encoding: br')
+    const decoded = decodeWire(wire)
+    const brPayload = fixture.response.payloads[0]!
+    expect(decoded.body.equals(brPayload), 'stored body must be the original compressed bytes').toBe(true)
+  }, 60_000)
+
   it('client sees byte-identical response through the tap (differential vs scripted payloads)', async () => {
     const fixture = await fx('res-stream-parallel-tools')
     const r = await runViaTap(fixture)

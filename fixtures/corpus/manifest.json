@@ -265,6 +265,20 @@
       }
     },
     {
+      "id": "res-br-nonstream",
+      "dir": "res-br-nonstream",
+      "files": {
+        "fixture.json": {
+          "sha256": "5a949ab20740ad547231e7a22787668f7194b9c9e132c8dbc88d0559f14d4341",
+          "bytes": 2547
+        },
+        "response.br.bin": {
+          "sha256": "8aa02888ee67fa656465b5c0557fc50e4c1cbb2bebb83c9f3b3475563ad18aea",
+          "bytes": 224
+        }
+      }
+    },
+    {
       "id": "res-headers-passthrough",
       "dir": "res-headers-passthrough",
       "files": {

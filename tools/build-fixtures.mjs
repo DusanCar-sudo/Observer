@@ -27,7 +27,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { gzipSync, gunzipSync } from 'node:zlib'
+import { brotliCompressSync, gzipSync, gunzipSync, brotliDecompressSync } from 'node:zlib'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -878,6 +878,33 @@ def({
   })
 }
 
+// ---- 24b. brotli-encoded response (task-2 criterion names gzip AND br) ---------
+{
+  const json = completion('chatcmpl-obsfixture0029', {}, {
+    prompt_tokens: 91,
+    completion_tokens: 18,
+    total_tokens: 109,
+    prompt_tokens_details: { cached_tokens: 64 },
+  }, 'A brotli-framed completion body.')
+  const br = brotliCompressSync(utf8(json))
+  def({
+    id: 'res-br-nonstream',
+    title: 'content-encoding: br response — compressed bytes forwarded untouched',
+    provenance: 'synthetic',
+    tags: ['res:compression', 'res:nonstream'],
+    notes:
+      'Task-2 acceptance names gzip AND br. Same contract as res-gzip-nonstream: the tap/gateway never decompress on the wire path; the stored bytes are the compressed bytes as received. --check verifies this artifact semantically (brotli-decompressed content equals the builder source) because compressed output is zlib-version dependent.',
+    request: { body: simpleRequest('Return a brotli-encoded completion.') },
+    response: {
+      status: 200,
+      reason: 'OK',
+      headers: jsonResHeaders([['content-encoding', 'br']]),
+      framing: 'length',
+      writes: [{ file: 'response.br.bin', bytes: br, brotliOf: json, delayMs: 10 }],
+    },
+  })
+}
+
 // ---- 25. response header fidelity ----------------------------------------------------------------
 def({
   id: 'res-headers-passthrough',
@@ -998,12 +1025,12 @@ const INLINE_LIMIT = 4096 // request bodies above this size go to request.bin
 function buildFixture(d) {
   const files = new Map() // relpath (within fixture dir) -> Buffer
   const generated = {} // key -> { spec, sha256, bytes }
-  // Files whose bytes are compressed artifacts: gzip output is zlib-version
-  // dependent, so --check verifies them by committed-manifest hash + semantic
-  // (decompressed) equality instead of byte-recompression. CI runs a different
-  // zlib build than the machine that froze the bytes; the DECOMPRESSED content is
-  // the platform-independent contract.
-  const zlibDependent = new Map() // relpath -> source string it must decompress to
+  // Files whose bytes are compressed artifacts: gzip/brotli output is
+  // zlib-version dependent, so --check verifies them by committed-manifest hash +
+  // semantic (decompressed) equality instead of byte-recompression. CI runs a
+  // different zlib build than the machine that froze the bytes; the DECOMPRESSED
+  // content is the platform-independent contract.
+  const zlibDependent = new Map() // relpath -> { kind, source }
 
   // ---- request body ----
   let bodyBytes
@@ -1039,7 +1066,8 @@ function buildFixture(d) {
     } else if (w.file) {
       entry.payload = { file: w.file }
       files.set(w.file, w.bytes)
-      if (w.gzipOf !== undefined) zlibDependent.set(w.file, w.gzipOf)
+      if (w.gzipOf !== undefined) zlibDependent.set(w.file, { kind: 'gzip', source: w.gzipOf })
+      if (w.brotliOf !== undefined) zlibDependent.set(w.file, { kind: 'brotli', source: w.brotliOf })
     } else {
       throw new Error(`fixture ${d.id}: write ${i} has neither payload string nor file`)
     }
@@ -1124,22 +1152,23 @@ function main() {
         //     zlib-dependent files are exempt from byte comparison (their bytes are
         //     frozen artifacts of the machine that built them) and get the semantic
         //     check in (3) instead.
-        const gzSource = b.zlibDependent.get(rel)
-        if (gzSource === undefined && !onDisk.equals(expected)) {
+        const zdep = b.zlibDependent.get(rel)
+        if (zdep === undefined && !onDisk.equals(expected)) {
           problems.push(`DIFFERS ${b.id}/${rel}`)
         }
         // (3) Semantic check for compressed artifacts: decompressed content must
-        //     equal the builder's source — platform-independent, unlike gzip bytes.
-        if (gzSource !== undefined) {
+        //     equal the builder's source — platform-independent, unlike the
+        //     compressed bytes.
+        if (zdep !== undefined) {
           let decompressed
           try {
-            decompressed = gunzipSync(onDisk)
+            decompressed = zdep.kind === 'gzip' ? gunzipSync(onDisk) : brotliDecompressSync(onDisk)
           } catch (err) {
-            problems.push(`GUNZIP ${b.id}/${rel}: ${err.message}`)
+            problems.push(`DECOMPRESS ${b.id}/${rel} (${zdep.kind}): ${err.message}`)
             decompressed = undefined
           }
-          if (decompressed && decompressed.toString('utf8') !== gzSource) {
-            problems.push(`GZIP-CONTENT ${b.id}/${rel}: decompressed bytes != builder source`)
+          if (decompressed && decompressed.toString('utf8') !== zdep.source) {
+            problems.push(`COMPRESSED-CONTENT ${b.id}/${rel}: decompressed bytes != builder source`)
           }
           // The rebuilt manifest must carry the COMMITTED hash for this file (the
           // recompressed bytes are allowed to differ across zlib versions).

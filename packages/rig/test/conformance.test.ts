@@ -52,6 +52,7 @@ describe('ReferencePipe conformance — zero diffs on every fixture', () => {
     'res-400-json-invalid',
     'res-502-nonjson',
     'res-gzip-nonstream',
+    'res-br-nonstream',
     'res-headers-passthrough',
     'res-stream-unicode-split',
     'res-stream-retry-partial',
