@@ -1837,6 +1837,108 @@ the tax would dwarf the benefit. So cleaning must be:
 
 ---
 
+### T16. Injection lifetime: our noise fix is itself permanent bytes `[OPEN — round 2, highest priority]`
+
+*Filed by lead 2026-11-09, reading `docs/research/protocol-fidelity.md` §3.2 closely. The
+mechanism is documented; the consequence is not yet designed for.*
+
+**Tension.** Anthropic's documented append-only replacement for injecting instructions is a
+`role:"system"` message appended into `messages` — and the docs add two rules that together create
+a problem for T15's resolution:
+
+> *"In a tool loop, place the message after the `tool_result` user message, **never between an
+> assistant `tool_use` and its `tool_result`**."*
+> *"Once sent, the message is part of the prefix for later thinking: **leave it in place on later
+> requests**."*
+
+So **every Observer injection is a permanent addition to the transcript, not a transient
+overlay.** Removing or rewriting one later is a prefix edit — illegal, and on post-2026-08-31
+Anthropic accounts a 400 on the supervised agent's request.
+
+Now combine that with T15's resolution. The one write authority we kept is **append-only
+labelling** to raise signal-to-noise. But if labels are permanent, then **labelling monotonically
+grows the context, and the noise fix eventually becomes noise.** An agent that reads the same file
+twenty times gets twenty stale-duplicate labels. We would have built a mechanism that degrades
+the very property it exists to protect — slowly, silently, and in the direction the operator
+cannot see, because each individual label is correct and helpful.
+
+There is a documented escape hatch, but it may be narrow:
+
+> a system message with `clear_at: "next_user_message"` — *"It adds nothing to what the model
+> receives and costs no input tokens, but because it's still in the array, the thinking in
+> `messages[4]` stays valid."* (beta `mid-conversation-system-clear-at-2026-08-21`)
+
+That is a **transient** primitive: zero input tokens, no prefix growth, and it preserves thinking
+validity. It is exactly what a per-turn nudge or a re-derivable label wants. But it is an
+Anthropic beta header — so the question that decides the design is whether anything equivalent
+exists on **OpenAI Chat Completions / qwen, our actual first target.** Aura's research lists
+OpenAI's append-only replacements (`configuration_update`, `additional_tools`, appended
+`developer` message) and none of them is described as self-clearing. If there is no transient
+primitive on target one, then **every Observer injection on qwen is permanent**, and label
+cadence becomes a hard budget problem rather than a style choice.
+
+**Two further constraints from the same research that bind any injection design:**
+
+- OpenAI's documented rule for custom compaction: *"place the compacted item at the **end** of the
+  model's context, instead of before recent turns"* — the opposite of the intuitive placement, and
+  a direct constraint on T4/T15.
+- Chat Completions exposes **no reasoning at all** (*"reasoning tokens are not visible via the
+  API, they still occupy space in the model's context window and are billed as output"*), while
+  qwen emits it non-standardly on `delta.reasoning_content`, absent from OpenAI's own
+  `ChoiceDelta` schema. So on target one we must parse permissively and re-serialise from original
+  bytes — the v1 rule already adopted — and we cannot reason about reasoning-block placement at
+  all, which removes a tool we might otherwise have used.
+
+**lead's position.** Build an explicit **injection inventory**: every kind of text Observer may
+add, each assigned a lifetime, a cadence budget, and a consolidation rule. Nothing gets injected
+without a row in this table. Draft:
+
+| Injection | Lifetime | Why | Cadence budget |
+|---|---|---|---|
+| Goal Card | permanent, **emitted once**, re-emitted only on human-verified change | It is state, not a nudge; re-emitting duplicates it and duplicates become noise | once per session + on change |
+| Per-turn nudge / reminder | **transient** (`clear_at` where available; where not, do not send at all) | A nudge that persists stops being a nudge and becomes a contradiction | per turn, but only when drift crosses threshold |
+| Stale-duplicate label | **transient and re-derived**, never accumulated | The authoritative-state pointer is a function of the current ledger, so re-deriving is free and correct; persisting every historical label is what grows | at most one live label set |
+| Grounding correction | permanent | It is a fact about a specific claim at a specific turn and must remain auditable under I2 | per verdict, bounded by verdict budget |
+| Disclosure preamble ("a supervisor verifies claims") | permanent, once | T11 requires it; it must not be re-stated | once per session |
+
+The governing principle: **prefer re-derivation over accumulation.** If an injection's content is
+a pure function of current verified state, emit it transiently and re-emit when it changes, rather
+than appending a new permanent record each time it changes. Permanence should be reserved for
+things that are *historical facts* (a correction issued at turn 20) and never for things that are
+*current state* (what is authoritative now).
+
+And where no transient primitive exists — possibly qwen — the fallback is **not** to append
+anyway. It is to withhold the injection and record the finding, because a supervisor that slowly
+pollutes the context it is paid to keep clean has failed at the one job the Human actually named.
+
+**Question for aura.** Five things, in priority order.
+
+1. **Does a transient, self-clearing injection primitive exist on OpenAI Chat Completions or on
+   qwen's dialect?** Cite it or state plainly that it does not. This decides whether the table
+   above is implementable on our first target or is Anthropic-only — and if it is Anthropic-only,
+   design the qwen fallback.
+2. **Design the label budget.** If labels must be permanent on target one, what is the maximum
+   fraction of context Observer may consume with its own additions before it disables itself?
+   Give a number and defend it. I would rather Observer shut its own write path down than drift
+   into being the largest source of noise in the transcript.
+3. **Is "re-derive transiently" actually safe under the thinking-block prefix rule?** The doc says
+   a sent message must be left in place because later thinking binds to it. If we clear a label at
+   `next_user_message`, does any already-emitted reasoning block that bound to it become invalid?
+   `clear_at` is documented as preserving validity — verify that this holds when the cleared
+   message is *ours* and not the provider's, and on a client that never opted into the beta.
+4. **Reconcile with T11.** Aura's round-1 T11 answer argued that attribution makes injected text
+   *salient*, and salient text acts like a fresh instruction regardless of its content. If labels
+   are re-emitted every turn, salience compounds. Does the inventory above make T11 worse?
+5. **Minuted for T14, from your withdrawn Q-P3:** registry entries need
+   `detectableFrom: 'wire' | 'log-only'`, because stateful Responses (`previous_response_id`)
+   carries no history at all; and gateway-for-live-audit / watcher-for-baseline is a division of
+   labour, not a split. Both accepted — please confirm I have stated them as you meant them.
+
+- **aura:**
+- **human:**
+
+---
+
 ## 4. Response log (append-only)
 
 Newest at the bottom. One entry per round per participant.

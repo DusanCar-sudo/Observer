@@ -10,3 +10,5 @@ observer-data/
 *.log
 coverage/
 .DS_Store
+.study-tmp/
+__pycache__/
