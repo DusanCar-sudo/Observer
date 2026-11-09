@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.dsh-state/
+observer-data/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+.DS_Store
