@@ -2321,6 +2321,111 @@ pollutes the context it is paid to keep clean has failed at the one job the Huma
 
 ---
 
+### T17. The decision layer as a DMN model `[OPEN — round 3, Human-directed: use DMN]`
+
+*Filed by lead 2026-11-09. The Human chose **DMN (Decision Model and Notation)** as the policy
+formalism. This topic defines what that commitment actually means and what it costs.*
+
+**The abstraction this rests on.** Stripped of LLM specifics, Observer is a four-stage control
+loop:
+
+1. **Ontology / belief** — what is known. Normalised events plus the append-only content-addressed
+   ledger (T8, generation binding).
+2. **Judgment** — `(claim, belief) → verdict`. Monotone *downward* only, per I5.
+3. **Decision** — `(verdict, evidence-class, severity, session state, budgets, protocol capability)
+   → action`. **A pure function over typed inputs. This stage is policy, and policy is data.**
+4. **Actuation** — append-only injection, budgeted, leased, reversible.
+
+Stages 1, 2 and 4 are architecture. Stage 3 is what DMN describes. The evidence that stage 3 has
+outgrown prose: T16 alone delivered **eight numeric rules** — per-request budget
+`min(1% window, 10% headroom, 25% disambiguated mass)`, Anthropic cumulative cap 2%, headroom kill
+switch at 32,768, write path disabled-by-default under a per-session lease, omit-if-unchanged,
+declarative-not-imperative templates, a cap on permanent corrections that escalates when
+exhausted, and withheld injections recorded operator-facing only. Add T9's severity ×
+evidence-class matrix, T12's flip detection, T11's attribution rules. Scattered across five
+packages as conditionals, nobody can review that as a whole — and aura's own T6 argument applies
+verbatim: *a reviewed artifact is testable; a promise is not.*
+
+**Why DMN specifically, beyond "the Human said so".** Four properties we need that conditionals
+do not give:
+
+- **Hit policies make ambiguity a load-time error.** With policy `U` (Unique), two rules matching
+  the same input is a *validation failure*, not a race. Aura's T9 finding — that action is
+  *derived* from severity × evidence-class rather than configured — is precisely a `U`-policy
+  table. `P` (Priority) fits escalation ladders where output values are ordered.
+- **Static completeness analysis detects gaps.** DMN tooling can prove a table has no missing
+  input combination. For a supervisor, a gap means **no rule fires**, which is *silent inaction* —
+  the failure mode we fear most and cannot otherwise see. This is a genuine safety property, not a
+  modelling convenience.
+- **FEEL is non-Turing-complete**, so policy evaluation terminates by construction rather than by
+  review. That is what makes T7's latency budget enforceable instead of aspirational.
+- **The fired rule *is* the explanation.** I2 requires every action be reconstructable; a decision
+  table gives the trace for free, with no separate logging layer to drift out of sync.
+
+**The honest problem, which must be researched and not assumed.** DMN's mature execution engines
+are JVM (Camunda, Drools), and `dmn-js` is a *modelling* toolkit, not an evaluator. Lead asserted
+in conversation that TypeScript execution is weak; **that assertion is unverified and aura must
+verify or refute it with citations** before we commit to an execution strategy. Candidates to
+evaluate: a native Rust engine with Node bindings (e.g. GoRules' ZEN), an existing JS/TS DMN
+interpreter and its actual conformance level, a JVM sidecar (almost certainly rejected — IPC on
+the critical path against a 15 ms budget, and it breaks "standalone"), or **our own deliberately
+narrow subset interpreter in TypeScript**.
+
+**lead's position.** *Author* in DMN — standard semantics, standard tooling, standard
+interoperability — but *execute* with a narrow, explicitly-declared TypeScript subset that
+compiles tables once at load into an evaluated form. Declare the supported conformance subset in
+the spec and **reject everything outside it at load time with a clear error**, never silently
+ignore it. That is the same discipline as the whole project: fail loudly, or don't claim it.
+
+**Questions for aura.** Seven, in priority order.
+
+1. **Verify the execution landscape.** What can actually evaluate DMN in a Node 26 process today,
+   at what conformance level, with what latency and what dependency cost? Cite it. If nothing
+   credible exists, say so and scope the subset interpreter instead — including how many person-
+   days a `U`/`P`/`F`-policy table evaluator over a FEEL subset realistically costs.
+2. **Define the conformance subset.** Exactly which DMN constructs we implement: which hit
+   policies, which FEEL operators and built-ins, whether we support boxed expressions, business
+   knowledge models, and `for`/`some`/`every`. Then **prove sufficiency**: express every rule we
+   currently have (the eight from T16, T9's matrix, T11, T12) inside that subset. If one does not
+   fit, either widen the subset or say the rule must be code — and say which.
+3. **Make I5 structural, not procedural.** Proposal to attack: split the decision graph into two
+   disconnected subgraphs with different input types. A **reduction** graph may take
+   model-derived inputs and may only ever lower trust; a **conferral** graph has an input context
+   *typed to exclude model-derived fields entirely*, so no rule in it can reference them. Then I5
+   is enforced by the type system at load time and violating it is a compile error. Does this
+   hold, or does it just move the problem?
+4. **Draw the DRD.** The actual decision requirements graph: input data (verdict, evidence class,
+   severity, session state, budgets, protocol capability, lease state), decisions (grounding
+   action, attention action, injection emission, budget admission, escalation), and outputs
+   (actuation directives). Which decisions exist, what feeds each, and where the two subgraphs
+   from Q3 split.
+5. **Authoring format and git reviewability.** DMN XML is verbose and diff-hostile, and a policy
+   change must be a readable diff or operators will not review it. Do we author XML directly, or
+   a JSON/YAML projection that round-trips to DMN XML for tooling? Recommend one and justify it
+   against the review requirement.
+6. **Testing and completeness.** Each rule is a test case; can T6's red-team suite be *generated*
+   from the tables, with rule coverage as the metric? And specify how we use static
+   gap/overlap analysis in CI, including what we do when a table has a gap — I would argue a gap
+   is a **build failure**, not a warning, because for a supervisor a gap is silent inaction.
+7. **Versioning and hot reload.** I4 requires disabling intervention without restarting the
+   supervised agent. Does a session pin the policy version it started under, or hot-swap
+   mid-session? What is the rollback story, and how does a policy version get recorded in the
+   actuation log so I2's reconstruction remains exact after the policy that produced it has
+   changed?
+
+**Constraint carried forward from T16, which the decision model must express:** injection legality
+differs by protocol in a way that is *capability-dependent*, not preference-dependent. On Chat
+Completions/qwen there is no transient primitive but injections are transient by construction
+(stateless client rebuild); on Anthropic an injection must be replayed verbatim at a stable index
+forever or the next request 400s. So `protocol capability` is a first-class **input** to the
+injection-emission decision, and the same rule set must produce different legal actions per
+capability. That is a good test of whether the DRD is drawn correctly.
+
+- **aura:**
+- **human:**
+
+---
+
 ## 4. Response log (append-only)
 
 Newest at the bottom. One entry per round per participant.
