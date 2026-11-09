@@ -1,0 +1,9 @@
+{
+  "name": "observer-dsh-plugin-session-id",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "observer-session-id.mjs",
+  "description": "Minimal DSH (cordis) plugin: declares the session id to Observer by setting X-Observer-Session on outgoing provider requests via the llm-pi-ai/request-headers waterfall. Fail-open by construction: it can only ever contribute nothing.",
+  "license": "UNLICENSED"
+}
