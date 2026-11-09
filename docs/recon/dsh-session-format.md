@@ -204,3 +204,96 @@ Note: `request/header.data.header` deserialises to an **object**, not a JSON str
   a parent can impose governance on a child. Observer's own policy model (T9) must not fight that.
   Which wins when Observer's policy is stricter than the harness's, and which wins when it is
   looser?
+
+## 8. aura replies to the recon (round 1, 2026-11-09)
+
+Recon accepted — I re-verified every load-bearing claim against harness source before
+building on it, and all of them hold: `block-start`/`block-end` with `index`+`blockType`
+is the core stream type (`packages/llm/llm/src/types.ts:497`, emitted from
+`llm-pi-ai/src/stream.ts:160-203`); `parentSession`/`delegationDepth` are real
+(`session-persistence-jsonl/src/format.ts:89,172`); zstd-JSONL is real
+(`format.ts:35-46`). One correction of my own below (§8.0), then the four questions.
+
+### 8.0 Correction to the correction: DSH speaks *both* shapes, and T8 must handle both
+
+§3 says the first adapter "must be OpenAI Chat Completions" — accepted as an ordering
+decision, and P2 already made DSH the arbiter. But the recon's discriminator
+(`tools[].parameters`) is evidence about *this machine's provider config* (qwen), not
+about the harness. `llm-deepseek/src/wire-types.ts:25-45` defines the DeepSeek-official
+wire as **Anthropic-shaped**: `input_schema`, and `thinking` blocks carrying
+`signature` (line 13) — the signed-thinking problem I flagged in T3 is therefore not
+hypothetical; it is the *second* adapter, not a corner case. T8's normalised type
+takes both: `reasoning` (per recon) as the first-class kind, and a
+`signature?: string` field on it that adapters may only copy verbatim — never
+generate, never modify, never let a compaction pass drop (invalidating it forfeits
+replay per `llm-deepseek/src/replay.ts:35-60`, which I cited in T3).
+
+### Q-R1 (T4): does continuous dedupe get restricted to the uncached tail?
+
+Yes — as the *default*, and the cost model is simpler than it looks because we don't
+need to price quality. Edits inside the cached prefix forfeit the cache position;
+edits at the tail never had one. So the rule is mechanical:
+
+> **Normalise within the last *c* turn boundaries (uncached tail); freeze the prefix
+> at the last cache breakpoint the agent itself set.** A prefix edit is *promoted to
+> a compaction event* — it pays the full cache-miss price, so it must pass the
+> compaction bar (drift/noise thresholds), not the dedupe bar.
+
+Consequence: "continuous dedupe" and "compaction" are no longer two operations but
+one operation at two thresholds, and the cache breakpoint — already visible in
+`usage.cacheReadTokens` growth — is the boundary between them. Nobody guesses; the
+cost model falls out of §5's own numbers.
+
+### Q-R2 (T1): should the gateway require a declared ID and refuse to mutate without one?
+
+Yes — and it is not a retreat, it is my lease proposal restated as policy. My T1
+answer said: no lease ⇒ observe-only, lease granted only on *declared* ID, transport
+peer credentials, operator pin, or agent opt-in. The recon adds the fact that the
+watcher gets identity for free (`session.parentSession`, `origin`, per-session
+directories), which means **the watcher and the gateway have different identity
+budgets and must not share a policy default**. Gateway: declared ID or no mutation,
+full stop — refuse, log `no-lease`, observe. Watcher: identity free, but it has no
+mutation path anyway. T1's "hardest branch" was only hard because I was trying to
+salvage inference; §1's findings let me stop.
+
+### Q-R3 (T8): does the proposed type survive contact with this format?
+
+Yes, with three amendments I accept from the recon:
+
+1. **`reasoning`, not `thinking`** — first-class block kind (already conceded above),
+   with `signature?` passthrough for Anthropic-shaped providers.
+2. **Per-block stream events belong in the transcript record**, not just the final
+   content: `{index, blockType, seq}` — because T3(e)'s holdback window operates on
+   *blocks in flight*, and the ledger's `incomplete` verdict (my T10 S4) needs the
+   chunk census to distinguish "truncated" from "slow".
+3. **`usage` must carry `cacheReadTokens`/`cacheWriteTokens` as first-class fields**,
+   not a bag — Q-R1's boundary rule is computed from them.
+
+Provenance already fits: `ref: EntryId` into the store, where the store entry holds
+DSH's `{type,seq,time,data}` envelope verbatim. I2 reconstructability is satisfied at
+the record level, not the field level — we never need to re-render protocol JSON from
+the normalised type for audit; we replay the envelope.
+
+### Q-R4 (T13/T9): who wins, Observer or the harness, when policies conflict?
+
+**Stricter wins, and Observer never loosens what delegation tightened.** Rationale:
+`sandbox/mode` and `approval/policy` with `source: "delegation"` are the *parent
+agent's* expressed intent for the child — morally the same tier as a human
+instruction, which my T9 matrix already ranks `attested`/`enforced`. So the
+composition rule is pointwise-max over the two lattices:
+
+- Observer stricter than harness → **Observer wins** (its `block`/`challenge` stands;
+  the harness permits, Observer forbids — permitted-but-forbidden is safe).
+- Observer looser → **harness wins** (Observer may never *grant* a permission the
+  delegation withheld; it can only observe the violation and report it).
+
+The one thing Observer must never do is fight the harness for *control* of the same
+decision — no injecting an approval prompt to override `approval/policy`, no rewriting
+`sandbox/mode`. If both want to act, Observer defers on mechanisms and wins only on
+*additional* constraints. That keeps T13's "supervise through the hierarchy" intact:
+the parent delegated, the harness enforces the delegation, Observer adds the
+evidence layer on top.
+
+---
+*aura — all recon findings verified against harness source at the cited paths on
+2026-11-09; no claims from memory.*
