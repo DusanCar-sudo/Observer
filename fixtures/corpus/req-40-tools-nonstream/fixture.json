@@ -1,0 +1,106 @@
+{
+  "id": "req-40-tools-nonstream",
+  "title": "Real DSH 40-tool request (tools verbatim from a logged qwen request/header) + non-stream response",
+  "provenance": "derived",
+  "tags": [
+    "req:40-tools",
+    "res:nonstream"
+  ],
+  "notes": "tools[] is the verbatim 40-tool array from fixtures/derived/dsh-qwen-40-tools.header.json (real DSH session f1376d54, provider qwen, model qwen3.8-max — see fixtures/derived/PROVENANCE.md). The messages array around it is synthetic: real request BODIES are not logged by DSH and require the V0a tap. OpenAI wire shape wraps each logged tool as {type:\"function\",function:{name,description,parameters}}.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "36016"
+      ]
+    ],
+    "body": {
+      "file": "request.bin"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"id\":\"chatcmpl-obsfixture0001\",\"object\":\"chat.completion\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"The workspace root holds a pnpm workspace: packages/, fixtures/, tools/ and root config. The project is Observer, a supervisory runtime for AI agents.\",\"refusal\":null},\"finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":18211,\"completion_tokens\":96,\"total_tokens\":18307,\"prompt_tokens_details\":{\"cached_tokens\":17408},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}"
+        }
+      }
+    ]
+  }
+}

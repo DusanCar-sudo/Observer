@@ -94,13 +94,47 @@ function timingOf(fx: FixtureJson): ResolvedFixture['timing'] {
   }
 }
 
-/** Derive the expected arrival schedule from the script (single source of truth). */
-export function expectedArrivalsOf(fx: FixtureJson): ExpectedArrival[] {
+/**
+ * Derive the expected arrival schedule from the script + resolved payload lengths.
+ *
+ * Models three realities the naive "one write = one arrival at delayMs" misses:
+ *  - a `splitAfterBytes` write produces TWO arrivals, the continuation SPLIT_GAP_MS later;
+ *  - the write AFTER a split continuation is scheduled from the script's cumulative
+ *    deadline, so its observed gap is delayMs − SPLIT_GAP_MS (the continuation ate
+ *    part of the interval);
+ *  - a truncating `terminate` stops the schedule: destroy-after-write k delivers
+ *    writes 0..k; destroy-after-body-bytes N delivers whole writes until N is
+ *    reached, then ONE partial arrival (which may land on a split's first or
+ *    second half).
+ */
+export function expectedArrivalsOf(fx: FixtureJson, payloadLengths: number[]): ExpectedArrival[] {
   const out: ExpectedArrival[] = []
-  for (const w of fx.response.writes) {
-    out.push({ nominalGapMs: w.delayMs, splitContinuation: false })
-    if (w.splitAfterBytes !== undefined) {
-      out.push({ nominalGapMs: SPLIT_GAP_MS, splitContinuation: true })
+  const terminate = fx.response.terminate ?? { kind: 'end' as const }
+  let budget = terminate.kind === 'destroy-after-body-bytes' ? terminate.bodyBytes : Number.POSITIVE_INFINITY
+  let prevWasSplit = false
+
+  outer: for (let wi = 0; wi < fx.response.writes.length; wi++) {
+    const w = fx.response.writes[wi]!
+    const len = payloadLengths[wi] ?? 0
+    if (terminate.kind === 'destroy-after-write' && wi > terminate.writeIndex) break
+    const splitAt =
+      w.splitAfterBytes !== undefined && w.splitAfterBytes > 0 && w.splitAfterBytes < len ? w.splitAfterBytes : undefined
+    const parts = splitAt !== undefined ? [splitAt, len - splitAt] : [len]
+    const baseGap = Math.max(0, w.delayMs - (prevWasSplit ? SPLIT_GAP_MS : 0))
+    prevWasSplit = false
+    for (let pi = 0; pi < parts.length; pi++) {
+      const partLen = parts[pi]!
+      const gap = pi === 0 ? baseGap : SPLIT_GAP_MS
+      if (budget <= 0) break outer
+      if (partLen > budget) {
+        // This part is cut mid-flight: it still arrives, partially, as one arrival.
+        out.push({ nominalGapMs: gap, splitContinuation: pi === 1 })
+        budget = 0
+        break outer
+      }
+      budget -= partLen
+      out.push({ nominalGapMs: gap, splitContinuation: pi === 1 })
+      if (pi === 1) prevWasSplit = true
     }
   }
   return out
@@ -266,7 +300,11 @@ export async function loadFixture(corpusDir: string, entry: ManifestFixtureEntry
     ...(fx.notes !== undefined ? { notes: fx.notes } : {}),
     dir,
     request: { method: fx.request.method, target: fx.request.target, headerPairs, headBytes, body },
-    response: { script: fx.response, payloads, expectedArrivals: expectedArrivalsOf(fx) },
+    response: {
+      script: fx.response,
+      payloads,
+      expectedArrivals: expectedArrivalsOf(fx, payloads.map((b) => b.length)),
+    },
     timing,
   }
 }

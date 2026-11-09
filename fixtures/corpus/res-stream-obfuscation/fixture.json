@@ -1,0 +1,141 @@
+{
+  "id": "res-stream-obfuscation",
+  "title": "SSE stream where every chunk carries the obfuscation padding field",
+  "provenance": "synthetic",
+  "tags": [
+    "res:stream-obfuscation",
+    "res:stream-done",
+    "sse"
+  ],
+  "notes": "§4.1: obfuscation exists ONLY to be byte-present and sized (side-channel mitigation). Dropping it is invisible to every semantic test — which is exactly why V4c names it a regression test and why the rig compares bytes, not events.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "282"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Stream with obfuscation padding.\"}],\"stream\":true,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0015\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}],\"obfuscation\":\"arIZevM3\"}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0015\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Padded \"},\"finish_reason\":null}],\"obfuscation\":\"FWbsJ0fwN4jAR8n\"}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0015\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"chunks \"},\"finish_reason\":null}],\"obfuscation\":\"+pGXctK1gxO5kBS9oFWbsJ\"}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0015\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stay padded.\"},\"finish_reason\":null}],\"obfuscation\":\"DU/qHYduL2hyP6lCT+pGXctK1gxO5\"}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0015\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"obfuscation\":\"8nEVarIZevM3i\"}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: [DONE]\n\n"
+        }
+      }
+    ]
+  }
+}

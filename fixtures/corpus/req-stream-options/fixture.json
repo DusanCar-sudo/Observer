@@ -1,0 +1,154 @@
+{
+  "id": "req-stream-options",
+  "title": "stream:true + stream_options.include_usage:true; usage null until the final chunk",
+  "provenance": "synthetic",
+  "tags": [
+    "req:stream-options",
+    "res:stream-usage",
+    "res:stream-done",
+    "sse"
+  ],
+  "notes": "§4.1: usage is present-but-null on every chunk except the last, and the last chunk has choices:[] — the shapes V5 must tolerate. Observer must never ADD stream_options to a client request (that would change the chunk sequence).",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "329"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Explain what the fidelity rig measures.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true},\"temperature\":0.2,\"max_tokens\":2048}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The rig measures \"},\"finish_reason\":null}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"byte identity, \"},\"finish_reason\":null}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"arrival boundaries \"},\"finish_reason\":null}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"and inter-chunk gaps.\"},\"finish_reason\":null}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":null}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0007\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":63,\"completion_tokens\":14,\"total_tokens\":77,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: [DONE]\n\n"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "id": "req-tool-results",
+  "title": "Two parallel tool calls followed by grouped role:tool results",
+  "provenance": "synthetic",
+  "tags": [
+    "req:tool-results",
+    "res:nonstream"
+  ],
+  "notes": "DSH's OpenAI path groups consecutive tool results (openai-completions.js:1078); wire messages do not map 1:1 to logical turns (V3 constraint). name is included on tool messages (requiresToolResultName dialects).",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "933"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Check the test status and read the settings file.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_obs_1001\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"pnpm -r test\\\",\\\"description\\\":\\\"run the workspace tests\\\"}\"}},{\"index\":1,\"id\":\"call_obs_1002\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"file_path\\\":\\\"config/settings.json\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_obs_1001\",\"name\":\"bash\",\"content\":\"packages/rig test: Done\\npackages/gateway test: Done\\nAll 2 packages passed.\"},{\"role\":\"tool\",\"tool_call_id\":\"call_obs_1002\",\"name\":\"read\",\"content\":\"{\\n  \\\"mode\\\": \\\"observe-only\\\",\\n  \\\"mutation\\\": false\\n}\"}],\"stream\":false,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"id\":\"chatcmpl-obsfixture0009\",\"object\":\"chat.completion\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Tests pass and the settings file is observe-only.\",\"refusal\":null},\"finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":9,\"total_tokens\":51,\"prompt_tokens_details\":{\"cached_tokens\":32},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}"
+        }
+      }
+    ]
+  }
+}

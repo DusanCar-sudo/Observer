@@ -1,0 +1,106 @@
+{
+  "id": "res-502-nonjson",
+  "title": "502 Bad Gateway with an HTML (non-JSON) body",
+  "provenance": "synthetic",
+  "tags": [
+    "res:5xx-nonjson",
+    "error"
+  ],
+  "notes": "Acceptance criterion \"a 5xx with NON-JSON body\": infrastructure errors are HTML/plain text, and any code path that assumes JSON errors crashes exactly when the provider is already down — violating fail-open (I1).",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "285"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"The upstream infrastructure fails.\"}],\"stream\":false,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 502,
+    "reason": "Bad Gateway",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/html"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+        }
+      }
+    ]
+  }
+}

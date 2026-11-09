@@ -1,0 +1,106 @@
+{
+  "id": "req-number-formats",
+  "title": "Request with 1.0 / 0.900 / 0.0 / 1e3 / 2048.0 number spellings (raw bytes, hand-written)",
+  "provenance": "synthetic",
+  "tags": [
+    "req:number-formats",
+    "res:nonstream"
+  ],
+  "notes": "V1/A2 sin (iii) material: JSON.parse→JSON.stringify rewrites 1.0→1, 0.900→0.9, 1e3→1000. The body is a hand-written template, NOT JSON.stringify output, because the spellings are the point.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "431"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Number formatting must survive byte-exactly.\"}],\"stream\":false,\"temperature\":1.0,\"top_p\":0.900,\"presence_penalty\":0.0,\"frequency_penalty\":0.00,\"max_tokens\":1e3,\"max_completion_tokens\":2048.0,\"seed\":42,\"n\":1,\"logit_bias\":{\"50256\":-100}}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"id\":\"chatcmpl-obsfixture0004\",\"object\":\"chat.completion\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Fixture response body — non-streaming.\",\"refusal\":null},\"finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":9,\"total_tokens\":51,\"prompt_tokens_details\":{\"cached_tokens\":32},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}"
+        }
+      }
+    ]
+  }
+}

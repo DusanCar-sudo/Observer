@@ -1,0 +1,107 @@
+{
+  "id": "req-reasoning-history",
+  "title": "Request whose assistant history carries reasoning_content + unknown top-level x_custom",
+  "provenance": "synthetic",
+  "tags": [
+    "req:unknown-fields",
+    "req:reasoning-history",
+    "res:nonstream"
+  ],
+  "notes": "V1/A2 sin (i) material: reasoning_content is ABSENT from OpenAI's own ChoiceDelta/ChatCompletionMessage schema (protocol-fidelity.md §4A.1), so any typed parse of this request deletes 100% of the reasoning history. x_custom is a pure unknown-field canary.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "599"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Where does the rig store its fixtures?\"},{\"role\":\"assistant\",\"content\":\"Under fixtures/corpus/, one directory per fixture, pinned by manifest.json.\",\"reasoning_content\":\"The user asked about fixture storage. I inspected the repository layout before answering.\"},{\"role\":\"user\",\"content\":\"And how are the hashes verified?\"}],\"stream\":false,\"temperature\":0.7,\"x_custom\":{\"nested\":{\"deep\":true},\"flag\":\"\"}}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"id\":\"chatcmpl-obsfixture0002\",\"object\":\"chat.completion\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"The loader re-verifies every sha256 at load time.\",\"refusal\":null,\"reasoning_content\":\"A short non-streamed reasoning trace that must also survive verbatim.\"},\"finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":9,\"total_tokens\":51,\"prompt_tokens_details\":{\"cached_tokens\":32},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}"
+        }
+      }
+    ]
+  }
+}

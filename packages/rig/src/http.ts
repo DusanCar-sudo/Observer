@@ -217,7 +217,14 @@ export class ResponseDecoder {
       this.#headDecoded = toDecodedHead(raw.firstLine, raw.headers, raw.headByteLength, 'response')
       const te = findHeader(this.#headDecoded.headers, 'transfer-encoding')
       const cl = findHeader(this.#headDecoded.headers, 'content-length')
-      if (te !== undefined && te.toLowerCase().includes('chunked')) {
+      const code = this.#headDecoded.statusCode ?? 0
+      if (code === 204 || code === 304) {
+        // These responses carry no body by definition, regardless of headers
+        // (RFC 9110 §15.4.5/§15.4.5). Framing is complete at the head.
+        this.#mode = 'length'
+        this.#remaining = 0
+        this.#outcome = 'complete'
+      } else if (te !== undefined && te.toLowerCase().includes('chunked')) {
         this.#mode = 'chunked'
       } else if (cl !== undefined) {
         this.#mode = 'length'

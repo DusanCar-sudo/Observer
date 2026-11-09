@@ -1,0 +1,159 @@
+{
+  "id": "res-stream-parallel-tools",
+  "title": "SSE stream with two parallel tool calls interleaved by (choice_index, tool_calls_index)",
+  "provenance": "synthetic",
+  "tags": [
+    "res:stream-parallel-tools",
+    "res:stream-done",
+    "sse"
+  ],
+  "notes": "§4.2: correlation is by index; id appears on the first fragment per index; arguments arrive as raw string fragments; interleaving is legal; there is NO per-tool-call boundary before finish_reason:tool_calls.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "296"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Run the tests and read the config in parallel.\"}],\"stream\":true,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_obs_0001\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_obs_0002\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"command\\\":\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{\\\"file_path\\\":\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"pnpm -r test\\\"}\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"\\\"config/settings.json\\\"}\"}}]},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0014\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: [DONE]\n\n"
+        }
+      }
+    ]
+  }
+}

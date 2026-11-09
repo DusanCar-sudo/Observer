@@ -1,0 +1,106 @@
+{
+  "id": "req-unicode-escapes",
+  "title": "Request mixing \\uXXXX escapes, surrogate pairs, \\/ escapes and literal UTF-8",
+  "provenance": "synthetic",
+  "tags": [
+    "req:unicode-escapes",
+    "res:nonstream"
+  ],
+  "notes": "JSON.parse decodes \\u00e9 to é and JSON.stringify emits it unescaped — a round-trip silently rewrites bytes while \"preserving meaning\". Byte identity does not care about meaning. Hand-written template on purpose.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "314"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"Escaped: caf\\u00e9 \\u4e2d\\u6587 \\ud83d\\ude00 \\u0041\\u0042\\u0043. Literal: café 中文 😀. Both forms must survive byte-exactly.\"},{\"role\":\"user\",\"content\":\"Quote \\\" backslash \\\\ slash \\/ tab \\t must survive too.\"}],\"stream\":false,\"temperature\":0.3}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"id\":\"chatcmpl-obsfixture0005\",\"object\":\"chat.completion\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Fixture response body — non-streaming.\",\"refusal\":null},\"finish_reason\":\"stop\",\"logprobs\":null}],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":9,\"total_tokens\":51,\"prompt_tokens_details\":{\"cached_tokens\":32},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}"
+        }
+      }
+    ]
+  }
+}

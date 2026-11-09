@@ -1,0 +1,157 @@
+{
+  "id": "res-stream-50ms-timing",
+  "title": "Eight writes at exactly 50 ms — the V4b incremental-delivery acceptance shape",
+  "provenance": "synthetic",
+  "tags": [
+    "res:stream-timing-strict",
+    "res:stream-done",
+    "sse"
+  ],
+  "notes": "V4b: \"Mock upstream emits one event per TCP write at 50 ms intervals; the client must observe the same intervals within ±5 ms.\" Deadline-corrected upstream scheduling; the rig checks gaps vs the baseline run AND vs this nominal schedule.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "277"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Stream at a strict cadence.\"}],\"stream\":true,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Timing \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fidelity \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"is \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"the \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"point.\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0017\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 50,
+        "payload": {
+          "inline": "data: [DONE]\n\n"
+        }
+      }
+    ]
+  },
+  "timing": {
+    "mode": "strict",
+    "gapToleranceMs": 5
+  }
+}

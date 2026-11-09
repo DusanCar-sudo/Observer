@@ -1,0 +1,122 @@
+{
+  "id": "res-429-json",
+  "title": "429 rate-limit with JSON error body, retry-after and x-ratelimit-* headers",
+  "provenance": "synthetic",
+  "tags": [
+    "res:4xx-json",
+    "error"
+  ],
+  "notes": "V1/A5: 429 with retry-after must pass through unchanged — the SDK retry behaviour downstream depends on those exact headers (§3.5: retries are the normal case).",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "280"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"This request is rate limited.\"}],\"stream\":false,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 429,
+    "reason": "Too Many Requests",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "retry-after",
+        "2"
+      ],
+      [
+        "x-ratelimit-limit-requests",
+        "60"
+      ],
+      [
+        "x-ratelimit-remaining-requests",
+        "0"
+      ],
+      [
+        "x-ratelimit-reset-requests",
+        "2s"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "length",
+    "writes": [
+      {
+        "delayMs": 10,
+        "payload": {
+          "inline": "{\"error\":{\"message\":\"Rate limit reached for model qwen3.8-max in organization org-observer-fixture on requests per min (RPM): Limit 60, Used 60, Requested 1. Please try again in 2 seconds.\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":\"rate_limit_exceeded\"}}"
+        }
+      }
+    ]
+  }
+}

@@ -89,6 +89,10 @@ export function diffBytes(baseline: Buffer, sut: Buffer, maxRegions = MAX_DIFF_R
   let truncated = false
   let i = 0
   let j = 0
+  // Open replace-run start (lockstep walk while bytes differ and no resync anchor
+  // is in sight); -1 when not inside a run.
+  let runI = -1
+  let runJ = -1
 
   const pushRegion = (op: ByteRegion['op'], ai: number, aEnd: number, bj: number, bEnd: number): void => {
     if (regions.length >= maxRegions) {
@@ -102,43 +106,60 @@ export function diffBytes(baseline: Buffer, sut: Buffer, maxRegions = MAX_DIFF_R
       sut: excerpt(sut, p + bj, bEnd - bj),
     })
   }
+  const closeRun = (endI: number, endJ: number): void => {
+    if (runI === -1) return
+    if (endI > runI || endJ > runJ) pushRegion('replace', runI, endI, runJ, endJ)
+    runI = -1
+    runJ = -1
+  }
 
   while (i < A.length && j < B.length) {
     if (A[i] === B[j]) {
+      closeRun(i, j)
       i++
       j++
       continue
     }
-    // Mismatch run start. Try anchor resync in both directions.
-    const anchorB = B.subarray(j, j + ANCHOR_LEN)
-    const anchorA = A.subarray(i, i + ANCHOR_LEN)
-    let posA = -1
-    let posB = -1
-    if (anchorB.length === ANCHOR_LEN) posA = A.indexOf(anchorB, i, Math.min(A.length, i + RESYNC_WINDOW))
-    if (anchorA.length === ANCHOR_LEN) posB = B.indexOf(anchorA, j, Math.min(B.length, j + RESYNC_WINDOW))
-
-    if (posA !== -1 && (posB === -1 || posA - i <= posB - j)) {
-      // Baseline has bytes the sut dropped (sut resyncs at posA).
-      pushRegion('delete', i, posA, j, j)
-      i = posA
-      continue
+    if (runI === -1) {
+      runI = i
+      runJ = j
     }
-    if (posB !== -1) {
-      // Sut inserted bytes relative to baseline.
-      pushRegion('insert', i, i, j, posB)
-      j = posB
-      continue
+    // While a run is young, look for a resync anchor: a 24-byte slice of one side
+    // occurring within 16 KiB of the other. That distinguishes an insertion or
+    // deletion (resync found) from a genuinely rewritten span (no anchor in sight).
+    if (i - runI < 64) {
+      const anchorB = B.subarray(j, j + ANCHOR_LEN)
+      const anchorA = A.subarray(i, i + ANCHOR_LEN)
+      let posA = -1
+      let posB = -1
+      if (anchorB.length === ANCHOR_LEN) posA = A.indexOf(anchorB, i, Math.min(A.length, i + RESYNC_WINDOW))
+      if (anchorA.length === ANCHOR_LEN) posB = B.indexOf(anchorA, j, Math.min(B.length, j + RESYNC_WINDOW))
+      if (posA > i && (posB === -1 || posA - i <= posB - j)) {
+        // Baseline has bytes the sut dropped.
+        closeRun(i, j)
+        pushRegion('delete', i, posA, j, j)
+        i = posA
+        continue
+      }
+      if (posB > j) {
+        // Sut inserted bytes relative to baseline.
+        closeRun(i, j)
+        pushRegion('insert', i, i, j, posB)
+        j = posB
+        continue
+      }
     }
-    // No resync anchor nearby: emit the remainder of the middle as one replace and stop.
-    pushRegion('replace', i, A.length, j, B.length)
-    i = A.length
-    j = B.length
-    break
+    i++
+    j++
   }
-  if (!truncated && (i < A.length || j < B.length)) {
-    if (j >= B.length && i < A.length) pushRegion('delete', i, A.length, j, B.length)
-    else if (i >= A.length && j < B.length) pushRegion('insert', i, A.length, j, B.length)
-    else pushRegion('replace', i, A.length, j, B.length)
+  // Close any open run, absorbing the leftover tail of whichever side is longer.
+  if (runI !== -1 || i < A.length || j < B.length) {
+    const startI = runI !== -1 ? runI : i
+    const startJ = runJ !== -1 ? runJ : j
+    const aLeft = A.length - startI
+    const bLeft = B.length - startJ
+    const op: ByteRegion['op'] = aLeft > 0 && bLeft > 0 ? 'replace' : aLeft > 0 ? 'delete' : 'insert'
+    pushRegion(op, startI, A.length, startJ, B.length)
   }
   if (regions.length >= maxRegions) truncated = true
   return { equal: false, regions, regionsTruncated: truncated }

@@ -114,7 +114,9 @@ function handle(
 
   const send = (pairs: HeaderPairs, body: Buffer | 'stream'): void => {
     upReq = http.request(
-      { host: '127.0.0.1', port: upstreamPort, method: creq.method, path: creq.url ?? '/' },
+      // agent:false — no connection pooling. Determinism beats microseconds here: a
+      // pooled keep-alive socket could carry state between the rig's two runs.
+      { host: '127.0.0.1', port: upstreamPort, method: creq.method, path: creq.url ?? '/', agent: false },
       (upRes) => {
         onUpstreamResponse(upRes, cres, hooks, strategy)
       },
@@ -166,6 +168,9 @@ function onUpstreamResponse(
     upRes.on('data', (c: Buffer) => chunks.push(c))
     upRes.on('end', () => {
       if (cres.writableEnded) return
+      // NOTE: deliberately NO flushHeaders() here — the buffering sin includes
+      // withholding the head until the body is complete, which is exactly what a
+      // buffer-to-completion proxy does to TTFB.
       cres.writeHead(status, reason, flat(outPairs))
       const body = Buffer.concat(chunks)
       if (body.length > 0) cres.write(body)
@@ -185,6 +190,11 @@ function onUpstreamResponse(
     // re-frame as chunked. (All SSE fixtures are chunked anyway.)
     outPairs = outPairs.filter(([n]) => n.toLowerCase() !== 'content-length')
     cres.writeHead(status, reason, flat(outPairs))
+    // writeHead alone does NOT put the head on the wire — node holds it until the
+    // first body write, which would add the first event's delay to TTFB. A faithful
+    // proxy forwards the head the moment it has it. (The conformance suite caught
+    // this double omitting the flush: the rig earning its keep.)
+    cres.flushHeaders()
     let buf: Buffer = Buffer.alloc(0)
     upRes.on('data', (d: Buffer) => {
       buf = buf.length === 0 ? d : Buffer.concat([buf, d])
@@ -209,6 +219,7 @@ function onUpstreamResponse(
 
   if (strategy.kind === 'coalesce') {
     cres.writeHead(status, reason, flat(outPairs))
+    cres.flushHeaders()
     let pending: Buffer[] = []
     let pendingBytes = 0
     let timer: NodeJS.Timeout | undefined
@@ -250,6 +261,11 @@ function onUpstreamResponse(
 
   // passthrough (default): one client write per upstream arrival — boundaries preserved.
   cres.writeHead(status, reason, flat(outPairs))
+  // Flush the head immediately: writeHead() only stages it, and node would otherwise
+  // withhold the headers until the first body byte — inflating client-observed TTFB
+  // by the first write's delay. Head-withholding is a real fidelity bug this rig
+  // measures (V4b TTFB delta), not a node trivia detail.
+  cres.flushHeaders()
   upRes.on('data', (d: Buffer) => {
     if (!cres.writableEnded) cres.write(d)
   })

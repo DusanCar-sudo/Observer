@@ -1,0 +1,142 @@
+{
+  "id": "res-stream-split-writes",
+  "title": "SSE event split mid-frame across TCP writes; another event spanning two chunked frames",
+  "provenance": "synthetic",
+  "tags": [
+    "res:stream-split-writes",
+    "res:stream-done",
+    "sse"
+  ],
+  "notes": "V4c criterion: an event split across TCP writes AND across Transfer-Encoding: chunked boundaries. Write 1 splits event B mid-JSON within one frame (splitAfterBytes); write 2 carries all of C plus the head of D, write 3 carries D's tail — so D spans two chunked frames.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "306"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"Stream content that will be split at awkward boundaries.\"}],\"stream\":true,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0016\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "splitAfterBytes": 113,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0016\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Split \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0016\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"across \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-obsfixture0016\",\"object\":\"chat.completion.chunk\",\"created"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"frames and writes.\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0016\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: [DONE]\n\n"
+        }
+      }
+    ]
+  }
+}

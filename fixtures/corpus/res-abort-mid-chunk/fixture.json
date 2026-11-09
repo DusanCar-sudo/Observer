@@ -1,0 +1,133 @@
+{
+  "id": "res-abort-mid-chunk",
+  "title": "Socket dies mid-SSE-event: partial chunk delivered, no frame terminator, FIN",
+  "provenance": "synthetic",
+  "tags": [
+    "res:stream-abort-mid-chunk",
+    "sse",
+    "truncation"
+  ],
+  "notes": "Acceptance criterion \"stream aborted mid-chunk\". The upstream sends a chunk-size line for bytes that never fully arrive, then the socket dies. The rig asserts the client saw the SAME truncated byte count on both paths — a SUT that completes, pads, or hangs its framing fails. Capture-side, this is the case that must be marked incomplete, never complete.",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "headers": [
+      [
+        "host",
+        "qwen-api.invalid"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "authorization",
+        "Bearer sk-observer-fixture-not-a-real-key"
+      ],
+      [
+        "accept",
+        "text/event-stream"
+      ],
+      [
+        "user-agent",
+        "observer-rig-fixture/0.1 (synthetic corpus; not a real client)"
+      ],
+      [
+        "openai-organization",
+        "org-observer-fixture"
+      ],
+      [
+        "openai-project",
+        "proj-observer-fixture"
+      ],
+      [
+        "x-stainless-lang",
+        "js"
+      ],
+      [
+        "x-stainless-package-version",
+        "7.19.0"
+      ],
+      [
+        "x-stainless-runtime",
+        "node"
+      ],
+      [
+        "x-stainless-runtime-version",
+        "26.13.0"
+      ],
+      [
+        "x-stainless-retry-count",
+        "0"
+      ],
+      [
+        "accept-encoding",
+        "gzip, deflate"
+      ],
+      [
+        "connection",
+        "close"
+      ],
+      [
+        "content-length",
+        "279"
+      ]
+    ],
+    "body": {
+      "inline": "{\"model\":\"qwen3.8-max\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a synthetic test agent inside the Observer fixture corpus. Nothing in this conversation is real.\"},{\"role\":\"user\",\"content\":\"This stream aborts mid-chunk.\"}],\"stream\":true,\"temperature\":0.2,\"max_tokens\":1024}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "reason": "OK",
+    "headers": [
+      [
+        "date",
+        "Sun, 09 Nov 2026 14:00:00 GMT"
+      ],
+      [
+        "content-type",
+        "text/event-stream; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "no-store, no-cache, must-revalidate"
+      ],
+      [
+        "connection",
+        "close"
+      ]
+    ],
+    "framing": "chunked",
+    "writes": [
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0020\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0020\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The abort \"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0020\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lands inside this very event payload, mid-JSON.\"},\"finish_reason\":null}]}\n\n"
+        }
+      },
+      {
+        "delayMs": 30,
+        "payload": {
+          "inline": "data: {\"id\":\"chatcmpl-obsfixture0020\",\"object\":\"chat.completion.chunk\",\"created\":1794216900,\"model\":\"qwen3.8-max\",\"system_fingerprint\":\"fp_obsfixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"never sent\"},\"finish_reason\":null}]}\n\n"
+        }
+      }
+    ],
+    "terminate": {
+      "kind": "destroy-after-body-bytes",
+      "bodyBytes": 511
+    }
+  }
+}

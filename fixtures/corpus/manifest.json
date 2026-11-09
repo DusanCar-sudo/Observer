@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "req-40-tools-nonstream",
+      "dir": "req-40-tools-nonstream",
+      "files": {
+        "fixture.json": {
+          "sha256": "f0ec42f15e8aeb6033d7967babc5e3d4c4eeccc8f28ae4504af8ba0bb5c7b680",
+          "bytes": 2916
+        },
+        "request.bin": {
+          "sha256": "c4e2a5f909d0ddef6d2a6084fcc4a828a57ab67e9cc9f02d6f85dae6c9a42e17",
+          "bytes": 36016
+        }
+      }
+    },
+    {
+      "id": "req-reasoning-history",
+      "dir": "req-reasoning-history",
+      "files": {
+        "fixture.json": {
+          "sha256": "08994ddd3c7b70bf1ebfce756c2c1fd04ecf66661fdddee51b92c61aeabf67df",
+          "bytes": 3421
+        }
+      }
+    },
+    {
+      "id": "req-empty-fields",
+      "dir": "req-empty-fields",
+      "files": {
+        "fixture.json": {
+          "sha256": "df1814dbd36cffdee93148224b25608e8b8bff42563da6559a620715ee5bc473",
+          "bytes": 3297
+        }
+      }
+    },
+    {
+      "id": "req-number-formats",
+      "dir": "req-number-formats",
+      "files": {
+        "fixture.json": {
+          "sha256": "80cd036bbc243aeaf83622fa6e63497abbdf2b34146c0d569ea315fa8e50fefa",
+          "bytes": 3047
+        }
+      }
+    },
+    {
+      "id": "req-unicode-escapes",
+      "dir": "req-unicode-escapes",
+      "files": {
+        "fixture.json": {
+          "sha256": "18ba3f2374fc63797ff0aed0909a1f4fc3a091b145044e568c73878ec1b8433b",
+          "bytes": 2939
+        }
+      }
+    },
+    {
+      "id": "req-big-5mb",
+      "dir": "req-big-5mb",
+      "files": {
+        "fixture.json": {
+          "sha256": "0f371849955145ae8a886ee5d8896e8790f47db86de0b4a7a9656108a48f617a",
+          "bytes": 2841
+        }
+      },
+      "generated": {
+        "request.body": {
+          "spec": {
+            "kind": "big-chat-body",
+            "seed": 42,
+            "targetBytes": 5242880
+          },
+          "sha256": "c4770d34b7c1e666083381962efa7fdc3864e08df30c73c8536be9150bcf7589",
+          "bytes": 5246936
+        }
+      }
+    },
+    {
+      "id": "req-stream-options",
+      "dir": "req-stream-options",
+      "files": {
+        "fixture.json": {
+          "sha256": "a4190c294010aed3c7bd3fd9a91595d2a18fe6a0f8bbc79173849a40259c63bf",
+          "bytes": 5272
+        }
+      }
+    },
+    {
+      "id": "req-long-system",
+      "dir": "req-long-system",
+      "files": {
+        "fixture.json": {
+          "sha256": "7ad1d7f77afd02865db2af5b7e1b80e9bca4254724bc02276bd16540ab9deca3",
+          "bytes": 2467
+        },
+        "request.bin": {
+          "sha256": "78a09bb2e03bf5dbd2a162b565c3036ccdd8d19811bba55b6d9eb050d5a945b0",
+          "bytes": 201994
+        }
+      }
+    },
+    {
+      "id": "req-tool-results",
+      "dir": "req-tool-results",
+      "files": {
+        "fixture.json": {
+          "sha256": "728bedaac8adabea6b93cda714c56de13b6d7a0b65423d74b34ed92a01bbca76",
+          "bytes": 3646
+        }
+      }
+    },
+    {
+      "id": "req-identity-fields",
+      "dir": "req-identity-fields",
+      "files": {
+        "fixture.json": {
+          "sha256": "b96fa299014d15746f400285b727e348cd7ef0c91a4bcc2e746978de3e9e3f9b",
+          "bytes": 2885
+        }
+      }
+    },
+    {
+      "id": "res-nonstream-json",
+      "dir": "res-nonstream-json",
+      "files": {
+        "fixture.json": {
+          "sha256": "e3031a167eb528b6588b5fd6276e6de2822f994bdb459f735ff6a1bcf83f583a",
+          "bytes": 2839
+        }
+      }
+    },
+    {
+      "id": "res-stream-done",
+      "dir": "res-stream-done",
+      "files": {
+        "fixture.json": {
+          "sha256": "809f3a80a5b1c7eae1773eda29c028305ca9b2465735f2491926e4510b46228b",
+          "bytes": 4496
+        }
+      }
+    },
+    {
+      "id": "res-stream-reasoning",
+      "dir": "res-stream-reasoning",
+      "files": {
+        "fixture.json": {
+          "sha256": "0325749094db2d537cf65c46d2a7d9ca3d1bbda1b8d32782891613af536900e1",
+          "bytes": 5878
+        }
+      }
+    },
+    {
+      "id": "res-stream-parallel-tools",
+      "dir": "res-stream-parallel-tools",
+      "files": {
+        "fixture.json": {
+          "sha256": "a866b428eb52be19027e98a0e5e509d52f614e64203b160744072654cb0675bb",
+          "bytes": 5843
+        }
+      }
+    },
+    {
+      "id": "res-stream-obfuscation",
+      "dir": "res-stream-obfuscation",
+      "files": {
+        "fixture.json": {
+          "sha256": "11915c6393567b074fc068d931679b34ea9244ad38d9835360d325682ea9a427",
+          "bytes": 4495
+        }
+      }
+    },
+    {
+      "id": "res-stream-split-writes",
+      "dir": "res-stream-split-writes",
+      "files": {
+        "fixture.json": {
+          "sha256": "bf92cd67e18add18bed0f46e2d42920bed586f538e345d99e8ad79062d7c7715",
+          "bytes": 4422
+        }
+      }
+    },
+    {
+      "id": "res-stream-50ms-timing",
+      "dir": "res-stream-50ms-timing",
+      "files": {
+        "fixture.json": {
+          "sha256": "9945cee60cc025bcbdc38d6d12bf0134f233173c41902015ee8ebb159b0e0a74",
+          "bytes": 5081
+        }
+      }
+    },
+    {
+      "id": "res-stream-empty-reasoning",
+      "dir": "res-stream-empty-reasoning",
+      "files": {
+        "fixture.json": {
+          "sha256": "1fe997a9fa23605a0ad533d8f90715bef412906e5885881ea200375247a131b3",
+          "bytes": 4394
+        }
+      }
+    },
+    {
+      "id": "res-stream-interrupted-no-done",
+      "dir": "res-stream-interrupted-no-done",
+      "files": {
+        "fixture.json": {
+          "sha256": "f76d6303ec06874200d106988d88468080b7148d30a26d1b4338e6a3abf170e8",
+          "bytes": 4309
+        }
+      }
+    },
+    {
+      "id": "res-abort-mid-chunk",
+      "dir": "res-abort-mid-chunk",
+      "files": {
+        "fixture.json": {
+          "sha256": "d0a27ce762f7639c7e5736a1c529e343ff84a99703ecaeb842860803462c9cf2",
+          "bytes": 4117
+        }
+      }
+    },
+    {
+      "id": "res-429-json",
+      "dir": "res-429-json",
+      "files": {
+        "fixture.json": {
+          "sha256": "7622305ed1401d3c5078c0bc0802f38a859f6e83f72b86e6d20baa184ffe234e",
+          "bytes": 2839
+        }
+      }
+    },
+    {
+      "id": "res-400-json-invalid",
+      "dir": "res-400-json-invalid",
+      "files": {
+        "fixture.json": {
+          "sha256": "daf7d1c7e43b973481e495fea59e2748b8b314379e09b94e195f4eacc565014b",
+          "bytes": 2376
+        }
+      }
+    },
+    {
+      "id": "res-502-nonjson",
+      "dir": "res-502-nonjson",
+      "files": {
+        "fixture.json": {
+          "sha256": "b13626deea071a6c92301535e65140943c69a12a2cb06d2a8d969053ac9c14c4",
+          "bytes": 2490
+        }
+      }
+    },
+    {
+      "id": "res-gzip-nonstream",
+      "dir": "res-gzip-nonstream",
+      "files": {
+        "fixture.json": {
+          "sha256": "2e3810f421e6397ce5f21cc2942d0742b0712df9db9424981ba939c3a1451eb4",
+          "bytes": 2587
+        },
+        "response.gzip.bin": {
+          "sha256": "4c95c7722f2bba31abbd1c3d004278963d3e71b659a2ed0a41ea432cfc31c289",
+          "bytes": 275
+        }
+      }
+    },
+    {
+      "id": "res-headers-passthrough",
+      "dir": "res-headers-passthrough",
+      "files": {
+        "fixture.json": {
+          "sha256": "825960685ec798a63741ac54ef5ff96830e23beab082c7f1c084bdffa373ab05",
+          "bytes": 3125
+        }
+      }
+    },
+    {
+      "id": "res-stream-unicode-split",
+      "dir": "res-stream-unicode-split",
+      "files": {
+        "fixture.json": {
+          "sha256": "3aa225fb167d1c16ff8569c2b7f972ba89aae1ea01c27a38f20ad4c56d1785c7",
+          "bytes": 3689
+        }
+      }
+    },
+    {
+      "id": "res-stream-retry-partial",
+      "dir": "res-stream-retry-partial",
+      "files": {
+        "fixture.json": {
+          "sha256": "affab9b226920c8d103e7f6221d0a44359f6640d20d1ea2c96981a06af4618ec",
+          "bytes": 3799
+        }
+      }
+    },
+    {
+      "id": "res-stream-retry-complete",
+      "dir": "res-stream-retry-complete",
+      "files": {
+        "fixture.json": {
+          "sha256": "a77e12bc853d604f3c0b5256088cd60b3e5cb1caaec7e1b7300d148cae4755e8",
+          "bytes": 4445
+        }
+      }
+    }
+  ]
+}
