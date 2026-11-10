@@ -662,3 +662,92 @@ the fixture says so.
   finalisation were misclassified as pipelining and the connection was killed. This shape recurs in
   the gateway between streaming a response and capturing it, so **V1 carries it as a named test**,
   not a comment.
+
+### 9.5 V4b's TTFB tail bound is reference-relative, not absolute
+
+**The original criterion — "TTFB delta vs direct < 5 ms" read as a p99 bound — is not measurable on
+a shared machine by any implementation, including a perfect one.** forge's decomposition experiment
+(clean node process, 200 paired runs per arm, same harness, only the SUT varies,
+`res-stream-done` fixture):
+
+| Arm | p50 | p90 | p99 | max |
+|---|---|---|---|---|
+| **ReferencePipe** — known-faithful double, i.e. the environmental noise floor | 1.13 ms | 7.12 ms | **31.77 ms** | 144.30 ms |
+| Gateway, capture ON (shipping config) | 1.47 ms | 6.70 ms | 20.77 ms | 74.52 ms |
+| Gateway, capture OFF | 0.57 ms | 2.65 ms | 8.74 ms | 20.35 ms |
+
+Arm 1 is the argument. The byte-faithful reference — the closest thing to a theoretical ideal that
+can actually be run — violates a p99 < 5 ms bound by **6×** while other agents are working on the
+machine. A gate that fails the ideal measures the machine's tenants, not the gateway. It also
+trains everyone to accept an intermittently red timing gate, which is the same failure as a
+supervisor whose warnings nobody reads (`docs/research/lead-verification-feelin.md`). The number is
+a machine-load random variable: the same harness gave gateway p99 3.6 ms on a quiet morning and
+6.6 ms under vitest worker load.
+
+**Amended criterion:**
+
+1. **p99 — reference-relative.** In the *same* benchmark session, assert
+   `gateway p99 <= ReferencePipe p99`. The reference arm *is* the environment calibration; this is
+   the differential philosophy the whole rig is built on, applied to timing instead of bytes.
+2. **p50 — absolute, < 5 ms.** The median is the gateway's systematic cost and is meaningful in a
+   way the tail is not: measured 0.6–1.5 ms across every configuration, 3–8× margin, stable across
+   machine states. Reference-relative logic must **not** creep onto the p50.
+3. **Inter-chunk gaps — absolute and hard.** The criterion's literal sentence stands and passes
+   decisively: **175/175 gap samples within ±5 ms of the nominal 50 ms schedule across 25
+   consecutive full runs**, absMax 3.4 ms, zero coalescing (arrival count exact every run), zero
+   buffering (first arrival at stream start). This is the property V4b exists to protect and it is
+   not noise-sensitive, so it gets no relaxation.
+
+Two conditions on the reference arm, both non-negotiable:
+
+- It must be measured **in the same session, interleaved** with the gateway arm — never read from a
+  stored baseline. A cached reference silently converts the comparison back into an absolute bound
+  with extra steps.
+- The harness must print the **full distribution and the reference arm into every run's evidence
+  output**, so the raw numbers stay visible in CI logs whichever way the assertion is written. A
+  reinterpretation without the evidence attached is indistinguishable from a quietly weakened bound.
+
+Also recorded, because it is counterintuitive and would otherwise be "fixed" backwards:
+**subprocess isolation is worse than in-process on a single machine** (p99 9–17 ms, holdback
+8–11 ms) — cross-process scheduler hops cost more than shared-loop interference. Holdback overhead
+for T3's budget: **mean 0.6–0.9 ms per chunk**, measured in-process.
+
+And a measured input to **V2 (task-4)**: capture adds ~0.9 ms p50 and fattens the tail, because
+`mkdirSync` plus first writes sit on the exchange start path. V2's write-behind spool should
+reclaim it. That is now a concrete reason for V2's design rather than an architectural preference.
+
+### 9.6 task-17 runbook correction: a live config change does not redirect a running session
+
+The approved live capture run was executed in full and **the tap works, but the run captured no
+agent traffic.**
+
+What was verified as working:
+- TLS upstream path against the real provider: the tap returned qwen's own
+  `401 {"error":{"message":"No API-key provided."}}` in 0.5 s, with `tls: true`, `status: complete`,
+  and the recorded request body sha256 matching the bytes sent. This retires the `[unverified]` tag
+  forge placed on the TLS path.
+- Payload integrity through the tap, on a payload built to break a typed proxy: `reasoning_content`
+  survived, `null` / `[]` / `""` preserved, and **key order preserved** (`zz_last` before
+  `aa_first`) — which is the direct proof that no re-serialisation occurred.
+- Snapshot → change → restore → **sha256 verified byte-identical**. One line added, one line
+  removed, `baseURL` count back to 0.
+
+What failed: **both recorded captures were the operator's own `curl` probes.** A live DSH inference
+occurred inside the window and never reached the tap.
+
+Therefore the hot-reload claim — *"each operation reads the current profiles, so a configuration
+change reaches the next request without a restart"* (`dsh-llm-pi-ai/lib/index.js` ~:1866, sourced
+from a docstring and marked as such) — **does not hold for `baseURL` on an already-running
+session.** The mechanism is not established and is deliberately not guessed at; a cached provider
+client or a reused keep-alive pool constructed before the change are both plausible and neither is
+verified.
+
+**Runbook amendments for any future attempt:**
+1. Change the config, then **restart DSH, or start a session that did not exist before the change.**
+2. **Verify success by observing a capture appear**, not by assuming the config took effect.
+3. Keep the snapshot-and-sha-verify restore discipline. It worked, and it is the only reason an
+   inconclusive run cost nothing.
+
+Both directions of the inference mistake were available here and are worth naming: *absence of
+captures* is not evidence the tap is broken, and *presence of a config change* is not evidence
+traffic moved. The run is recorded as inconclusive-on-capture and conclusive-on-TLS.
