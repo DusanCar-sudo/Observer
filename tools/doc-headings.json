@@ -224,23 +224,7 @@
     "## 9. Anti-gaming rules"
   ],
   "docs/spec/dmn-benchmark-results.md": [
-    "# DMN Decision-Layer Benchmark — Results",
-    "## 1. Environment (mandatory, per plan §4)",
-    "## 2. The fixture, and what it cost me to trust it",
-    "## 3. L1 — evaluation latency",
-    "### 3.1 Per-decision calls (B1 as literally specified)",
-    "### 3.2 One root call — the production shape",
-    "## 4. Why it is slow — the cost is columns, not rules",
-    "### 4.1 Column count (rules fixed at 4)",
-    "### 4.2 Rule count (columns fixed at 4)",
-    "### 4.3 What this means for the DRD as drawn",
-    "## 5. B3 — allocation: reported as unusable, not as a number",
-    "## 6. L2 - bundle load (B4): passes with margin",
-    "## 7. Pass / fail, against the gates fixed in the plan",
-    "## 8. What the design should do about it",
-    "## 9. What this benchmark cannot measure",
-    "## 10. Reproducing this",
-    "## 11. Open items I could not close this round"
+    "# DMN Decision-Layer Benchmark — Results (pointer)"
   ],
   "docs/spec/vertical-slice-tasks.md": [
     "# Vertical Slice — Task Breakdown (v1)",

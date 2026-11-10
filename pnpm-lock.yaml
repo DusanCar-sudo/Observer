@@ -23,9 +23,23 @@ importers:
         specifier: ^4.0.0
         version: 4.1.12(@types/node@26.6.6)(vite@8.3.6(@types/node@26.6.6))
 
-  packages/cli: {}
+  packages/cli:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.6.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
 
-  packages/detectors: {}
+  packages/detectors:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.6.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
 
   packages/dmn-conformance:
     dependencies:
@@ -67,7 +81,14 @@ importers:
         specifier: ^4.0.0
         version: 4.1.12(@types/node@26.6.6)(vite@8.3.6(@types/node@26.6.6))
 
-  packages/watcher: {}
+  packages/watcher:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.6.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
 
 packages:
 

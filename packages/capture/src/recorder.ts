@@ -31,14 +31,51 @@ export interface RecordingCapture {
   finalize(status: CaptureStatus, error?: string): Promise<CaptureMeta>
 }
 
+/**
+ * A capture sink that swallows everything. Used when the real recorder failed to
+ * start (bad outDir, permissions) so that capture failures can NEVER enter the
+ * request path (I1/A6): traffic flows, the loss is counted via onCaptureError.
+ */
+export const NULL_CAPTURE: RecordingCapture = {
+  id: 'cap-null',
+  dir: '',
+  recordRequestHead() {},
+  recordForwardedHead() {},
+  recordRequestBody() {},
+  recordResponseWire() {},
+  setRequestLine() {},
+  setResponseStatusLine() {},
+  setHostRewritten() {},
+  setUpstream() {},
+  finalize: async () => NULL_META,
+}
+
+const NULL_META: CaptureMeta = {
+  captureId: 'cap-null',
+  startedAt: new Date(0).toISOString(),
+  status: 'incomplete:client-aborted',
+  upstream: { origin: '', tls: false },
+  request: { method: '', target: '', httpVersion: '', headBytes: 0, bodyBytes: 0, bodySha256: '', hostRewritten: false, arrivals: [] },
+  response: { wireBytes: 0, wireSha256: '', arrivals: [], truncated: true },
+  error: 'null capture (recorder unavailable)',
+  redacted: false,
+}
+
+/** The recorder interface the proxy core depends on (CaptureRecorder satisfies it). */
+export interface RecorderLike {
+  begin(startedAt?: Date): RecordingCapture
+}
+
 function utcCompact(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
-export class CaptureRecorder {
+export class CaptureRecorder implements RecorderLike {
   readonly outDir: string
   #counter = 0
   #indexPath: string
+  /** Stream-level failures are recorded per capture; surfaced here for operators. */
+  onWriteError?: (captureId: string, err: Error) => void
 
   constructor(outDir: string) {
     this.outDir = path.resolve(outDir)
@@ -65,6 +102,16 @@ export class CaptureRecorder {
 
     const bodyStream: WriteStream = createWriteStream(path.join(dir, 'request.body.bin'))
     const wireStream: WriteStream = createWriteStream(path.join(dir, 'response.wire.bin'))
+    // An unhandled 'error' on a WriteStream crashes the process — which would let
+    // a disk failure take down live traffic (I1 violation). Errors are captured,
+    // surfaced via onWriteError, and mark the capture degraded; traffic never sees them.
+    let streamFailed = false
+    const onStreamError = (which: string) => (err: Error): void => {
+      streamFailed = true
+      this.onWriteError?.(id, new Error(`${which}: ${err.message}`))
+    }
+    bodyStream.on('error', onStreamError('request.body.bin write failed'))
+    wireStream.on('error', onStreamError('response.wire.bin write failed'))
     const bodyHash = createHash('sha256')
     const wireHash = createHash('sha256')
 
@@ -82,12 +129,15 @@ export class CaptureRecorder {
     let finalized: Promise<CaptureMeta> | undefined
 
     const closeStream = (s: WriteStream): Promise<void> =>
-      new Promise((resolve, reject) => {
+      new Promise((resolve) => {
+        // Never reject: a failed stream was already surfaced via onWriteError, and
+        // finalize must complete so meta.json still records what DID happen.
         s.end(() => resolve())
-        s.on('error', reject)
+        s.on('error', () => resolve())
       })
 
     const indexPath = this.#indexPath
+    const this2 = this
 
     const rec: RecordingCapture = {
       id,
@@ -104,13 +154,23 @@ export class CaptureRecorder {
         bodyHash.update(chunk)
         reqBodyBytes += chunk.length
         reqArrivals.push({ tMs, bytes: chunk.length, cumBytes: reqBodyBytes })
-        bodyStream.write(chunk)
+        try {
+          bodyStream.write(chunk)
+        } catch (err) {
+          streamFailed = true
+          this2.onWriteError?.(id, err instanceof Error ? err : new Error(String(err)))
+        }
       },
       recordResponseWire(chunk, tMs) {
         wireHash.update(chunk)
         resWireBytes += chunk.length
         resArrivals.push({ tMs, bytes: chunk.length, cumBytes: resWireBytes })
-        wireStream.write(chunk)
+        try {
+          wireStream.write(chunk)
+        } catch (err) {
+          streamFailed = true
+          this2.onWriteError?.(id, err instanceof Error ? err : new Error(String(err)))
+        }
       },
       setRequestLine(m, t, v) {
         method = m
@@ -152,7 +212,7 @@ export class CaptureRecorder {
               arrivals: resArrivals,
               truncated: status !== 'complete',
             },
-            ...(error !== undefined ? { error } : {}),
+            ...(error !== undefined ? { error } : streamFailed ? { error: 'artifact stream write failed; recorded bytes/hashes may be incomplete on disk' } : {}),
             redacted: false,
           }
           await mkdir(dir, { recursive: true })

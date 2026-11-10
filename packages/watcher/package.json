@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Read-only session-log adapters. Translates a harness's own log format into normalised events.",
+  "description": "Read-only session-log adapters. Translates a harness own log format into normalised events.",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --typeRoots ../rig/node_modules/@types"
+    "test": "pnpm run typecheck && node --test test/",
+    "typecheck": "tsc -p tsconfig.json"
   },
-  "scriptsComment": "typecheck borrows @types/node from packages/rig until these packages get their own devDeps. TEMPORARY: pnpm strict isolation means a package with no node_modules cannot resolve @types/node. Fix by adding typescript+@types/node as devDeps here and running pnpm install, once packages/rig is no longer mid-flight."
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.0"
+  }
 }

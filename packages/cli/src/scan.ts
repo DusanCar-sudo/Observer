@@ -113,7 +113,10 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
 
   let files = await listDshSessionFiles(args.root)
-  if (args.session) files = files.filter(f => f.includes(args.session))
+  // Bind to a local: narrowing on `args.session` does not survive into the callback, because TS
+  // cannot know the property was not reassigned between the check and the call.
+  const sessionFilter = args.session
+  if (sessionFilter) files = files.filter(f => f.includes(sessionFilter))
 
   if (files.length === 0) {
     process.stderr.write(`scan: no session files found under ${args.root}\n`)

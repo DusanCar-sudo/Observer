@@ -39,6 +39,18 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      # The watcher and cli suites build and read real session.v4.jsonl.zstd fixtures, so zstd is a
+      # hard dependency of the test suite, not an optional convenience. Assert it explicitly rather
+      # than assuming the runner image ships it: those tests fail loudly if it is missing (they do
+      # not skip), and a loud failure with a reason beats a red suite nobody can diagnose.
+      - name: Verify zstd is present
+        run: |
+          zstd --version || {
+            echo "::error::zstd is not on PATH. packages/watcher and packages/cli decode";
+            echo "session.v4.jsonl.zstd and their tests hard-fail without it. Add an install step.";
+            exit 1;
+          }
+
       - name: Test
         run: pnpm -r test
 
