@@ -894,3 +894,64 @@ behaviour under load is the whole point.
 produced a 229 ms p99 artefact, so the V4b harness runs in a clean node process; and a
 subprocess-isolated gateway measures *worse* on a single machine (p99 9–17 ms, holdback 8–11 ms)
 than in-process, because cross-process scheduler hops cost more than shared-loop interference.
+
+### 9.9 Timing gates run outside the test runner's worker
+
+After §9.7's transit axis was implemented and proven in both directions, a residual flake remained:
+isolated single-chunk transit spikes of 6–11 ms inside long-lived vitest workers. The dataset that
+resolved it is the point of this section:
+
+| Context | Samples | Spikes > 5 ms |
+|---|---|---|
+| Fresh child process per run | ~1050 | **0** (max 2.0 ms) |
+| vitest in-worker, pre-GC-hygiene | ~2500 | 3 (6.1 / 6.6 / 10.5 ms) |
+| vitest in-worker, with GC hygiene | ~800 | 2 (≈0.4 %/run) |
+
+Spike fingerprint: one chunk exceeds, mean stays ~1–2 ms, neighbours normal, baseline arm pristine,
+all byte and structure axes pass. That is *not* the buffering signature, which is sustained and
+growing (the ~350 ms series proven in §9.7).
+
+**The same gateway code in a clean process produced zero spikes in 1050 samples.** That is a
+controlled isolation of the variable, and it attributes the spikes to the worker environment rather
+than to the system under test.
+
+**Decision: remove the noise source; do not add tolerance.** Timing-sensitive conformance runs in a
+plain-node child process, outside the test runner's worker. The bound does not move and every chunk
+stays gated — what changes is the environment the measurement is taken in. Batched execution (one
+child per suite rather than one per fixture) is the hypothesis to measure first, since the
+zero-spike evidence came from a per-*run* child process; if batching reintroduces spikes, fall back
+to per-fixture isolation and accept the cost.
+
+**Declined: a persistence rule** (violation only on two consecutive chunks, or one chunk above
+2× tolerance, with single outliers counted in diagnostics). The physics argument for it is sound —
+buffering, holdback, and delayed coalescing are sustained, so a lone blip with a 1.9 ms mean and
+clean neighbours is environmental. It was declined anyway, for two reasons. First, the table above
+shows the noise is removable, and §9.7 exists to say that a removable instrument error is not a
+candidate for slack. Second, and less comfortable: **the argument for it was good.** Accepting
+well-reasoned slack is how a test suite erodes without any single decision looking wrong, and the
+erosion is invisible at each step.
+
+**Condition, and it is the one that keeps isolation honest:** under child-process isolation a spike
+is a **real finding** and must not be reclassified as environmental. The entire justification for
+isolation is that it removes the environmental explanation, so once isolated, a spike has nowhere to
+hide. This belongs in a comment where the next reader will see it — otherwise isolation quietly
+becomes a mechanism for making red disappear, which is worse than the flake it replaced.
+
+`transitSpikes: n` is counted and printed in every diagnostics block regardless, per §9.7's rule
+that a demoted measurement must stay visible. It distinguishes a clean run from a run that survived.
+
+**Jurisdiction of each gate, settled:** the gap loop runs **capture-off** because it gates
+forwarding; conformance suites run **capture-on** because that is the shipping configuration; Gate B
+(§9.8) gates capture's systematic cost separately. Isolating one variable per gate is the design, not
+a convenience — and it stands even though child-process isolation independently removed the harness
+artefact that first motivated it.
+
+**Superseded number.** §9.8 derived Gate B's 1.5 ms interim bound and V2's ≤ 0.3 ms target from a
+~0.9 ms capture cost measured in the earlier two-arm decomposition on a noisy machine. The clean
+four-arm harness measures the capture cost at **p50 delta 0.30–0.45 ms** across five runs with
+rotating arm order and zero anomalies. **V2's target is therefore already at the boundary of
+today's measurement**, and must be re-derived from the four-arm harness rather than inherited from
+§9.8. If the honest answer is that the recorder is already near its floor and a write-behind spool
+buys little, then V2's latency criterion becomes *hold the line, do not regress* and Gate B's
+retirement condition changes with it. A target derived from a superseded measurement is worse than
+no target, because it looks like a commitment.

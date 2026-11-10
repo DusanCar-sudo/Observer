@@ -270,7 +270,8 @@
     "### 9.5 V4b's TTFB tail bound is reference-relative, not absolute",
     "### 9.6 task-17 runbook correction: a live config change does not redirect a running session",
     "### 9.7 An intermittent timing test is a measurement question before it is a tolerance question",
-    "### 9.8 V4b gate semantics: the reference double is not a functional twin"
+    "### 9.8 V4b gate semantics: the reference double is not a functional twin",
+    "### 9.9 Timing gates run outside the test runner's worker"
   ],
   "BRAINSTORM.md": [
     "# Observer — Brainstorm 01: Core Architecture",
