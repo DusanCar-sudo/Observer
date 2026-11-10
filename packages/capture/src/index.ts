@@ -10,8 +10,17 @@
  */
 
 export * from './types.js'
-export { CaptureRecorder, type RecordingCapture } from './recorder.js'
+export { CaptureRecorder, NULL_CAPTURE, type RecordingCapture, type RecorderLike } from './recorder.js'
 export { startTap } from './tap.js'
+export {
+  startProxy,
+  type ProxyCoreConfig,
+  type ProxyCoreHandle,
+  type ProxyEvent,
+  type ProxyRequestInfo,
+  type RouteDecision,
+  type SyntheticResponse,
+} from './proxy-core.js'
 export { startReplayServer, type ReplayHandle, type ReplayOptions } from './replay.js'
 export {
   findHead,

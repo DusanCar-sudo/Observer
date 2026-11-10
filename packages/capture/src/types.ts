@@ -9,6 +9,14 @@
  * inspection steps, never on the forwarding path and never as a storage format.
  */
 
+/**
+ * A header as an ordered `[name, value]` pair, both latin1-decoded from the exact
+ * bytes on the wire. A list rather than a map because order is part of what was
+ * observed: folding duplicates or re-sorting would make the recorded head
+ * unreproducible from the record.
+ */
+export type HeaderPairs = [string, string][]
+
 /** One body/wire arrival event, for timeline reconstruction of fixtures. */
 export interface CaptureArrival {
   /** ms since the capture's t0 (request head complete, client side). */

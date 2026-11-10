@@ -10,6 +10,30 @@
  * Nothing here decodes, re-encodes, or re-serialises a body. Observation only.
  */
 
+/**
+ * Hop-by-hop headers (RFC 9110 §7.6.1) plus the proxy-* family. Per-connection
+ * headers a proxy must not forward verbatim. This duplicates the rig's list ON
+ * PURPOSE: the rig is the judge and this package is the judged — sharing the
+ * constant would let a wrong list agree with itself. V1/A4 strips exactly these
+ * on the request side; the rig's header comparison ignores exactly these.
+ */
+export const HOP_BY_HOP_HEADERS: readonly string[] = [
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+  'te',
+  'trailer',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+]
+
+export function isHopByHopName(name: string): boolean {
+  const n = name.toLowerCase()
+  return HOP_BY_HOP_HEADERS.includes(n) || n.startsWith('proxy-')
+}
+
 export interface ParsedHead {
   firstLine: string
   /** Raw byte offsets of each header line: [start, end) including CRLF, plus name range. */
@@ -77,6 +101,27 @@ export function headValue(parsed: ParsedHead, rawHead: Buffer, name: string): st
   const h = parsed.headers.find((x) => x.name.toLowerCase() === name.toLowerCase())
   if (!h) return undefined
   return rawHead.subarray(h.valueStart, h.lineEnd).toString('latin1')
+}
+
+/**
+ * Remove whole header LINES at the byte level (V1/A4: hop-by-hop headers are
+ * stripped on the request side). Every remaining byte — order, casing, spacing,
+ * values — is preserved verbatim; this is excision, never re-serialisation.
+ */
+export function stripHeaderLines(rawHead: Buffer, shouldStrip: (lowerName: string) => boolean): { head: Buffer; removed: string[] } {
+  const parsed = findHead(rawHead)
+  if (!parsed) return { head: rawHead, removed: [] }
+  const removed: string[] = []
+  let out = rawHead
+  // Iterate in REVERSE so earlier offsets stay valid while we excise.
+  for (let i = parsed.headers.length - 1; i >= 0; i--) {
+    const h = parsed.headers[i]!
+    if (!shouldStrip(h.name.toLowerCase())) continue
+    removed.unshift(h.name)
+    const lineEndWithCrlf = Math.min(h.lineEnd + 2, out.length)
+    out = Buffer.concat([out.subarray(0, h.nameStart), out.subarray(lineEndWithCrlf)])
+  }
+  return { head: out, removed }
 }
 
 export type FramingMode = 'chunked' | 'length' | 'close' | 'none'
