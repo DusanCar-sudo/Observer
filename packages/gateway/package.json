@@ -1,0 +1,33 @@
+{
+  "name": "@observer/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "V1 byte-faithful pass-through gateway for POST /v1/chat/completions (DSH -> qwen as deployed). Milestone 1 mutates nothing: raw-byte forwarding, header hygiene, explicit refusals, capture hookup, fail-open on all Observer-side failures.",
+  "license": "UNLICENSED",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "observer-gateway": "./bin/gateway.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "pnpm run typecheck && vitest run"
+  },
+  "dependencies": {
+    "@observer/capture": "workspace:*"
+  },
+  "devDependencies": {
+    "@observer/rig": "workspace:*",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
