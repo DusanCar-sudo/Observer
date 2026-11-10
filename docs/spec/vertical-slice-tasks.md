@@ -815,3 +815,82 @@ wrong, not the subject.** In both cases the first instinct is to add tolerance �
 ignorable, treat a failing timing gate as flaky — and in both cases the correct response was to fix
 what was being measured. So: when a test is intermittent, ask what quantity it actually measures
 before asking how much slack to allow.
+
+### 9.8 V4b gate semantics: the reference double is not a functional twin
+
+§9.5 made the p99 bound reference-relative. Measured against a triple-arm interleaved harness
+(direct | gateway | reference, arm order alternating per iteration to remove ordering bias, 400
+pairs, 0 anomalies, every pair sha-checked per §9.2), that gate **fails systematically**:
+
+| Statistic | Gateway | ReferencePipe | Result |
+|---|---|---|---|
+| p50 | 0.71 ms | 0.63 ms | absolute < 5 ms **passes with 7× margin** |
+| p99 | 5.80 ms | 4.87 ms | `gw ≤ ref` **fails by 0.93 ms** |
+
+An earlier 200-pair run gave 4.25 vs 3.56 — failing by 0.69 ms in the same direction. Consistent,
+not a coin flip.
+
+**Cause, and it is a specification error in §9.5 rather than a defect in the gateway.**
+`ReferencePipe` is a *fidelity* double — byte-faithful, timeline-faithful — but it is not a
+*functional* twin: **it has no recorder by construction.** The gateway performs per-exchange capture
+I/O (`mkdirSync`, head `writeFileSync`, stream opens before connect, meta flush after). So
+`gateway p99 ≤ ReferencePipe p99` compares forwarding cost *plus* recording cost against forwarding
+cost alone, and the ~0.9 ms difference is precisely the capture cost already attributed to V2's
+write-behind spool in §9.5. The gate was aimed at the wrong quantity.
+
+**Rejected: an interim `+2 ms` margin.** Honest and tracked, but an invented constant in a gate —
+its only provenance is "whatever makes today's measurement pass, plus a bit." Against a p99 of
+~5 ms that is a 40% relaxation, and invented margins age into permanent ones: when V2 lands at
++1.2 ms the margin gets re-justified rather than removed.
+
+**Rejected: pulling V2's spool forward.** V2 carries an explicit constraint — clobbering must be
+**unrepresentable**, not merely unlikely — and that is real crash-safety and concurrency design.
+Smuggling it into a timing task to make a gate pass is how a storage layer ends up with a
+mitigation instead of a guarantee.
+
+**Rejected: gating on `capture:false` alone.** That measures the forwarding path while we ship the
+capture path, leaving the shipping configuration ungated until V2 lands. Measured-and-printed is not
+gated; between now and V2 the capture cost could grow and nothing would fail. This is §9.7's
+"demoted measurement quietly stops existing" arriving one step early.
+
+**Adopted: gate the two costs separately.** Both arms already exist in the decomposition, so this is
+one assertion rather than new instrumentation.
+
+1. **Gate A — forwarding fidelity (hard, blocking).** `capture-off p99 ≤ ReferencePipe p99`, same
+   session, interleaved, alternating arm order. Environmental-noise-immune per §9.5's reasoning.
+2. **Gate B — capture cost (hard, blocking), gated at p50.** `capture-on p50 − capture-off p50
+   ≤ 1.5 ms`. **Provenance of 1.5:** measured delta is ~0.9 ms, rounded up for machine variance —
+   derived, not invented, and the derivation belongs in the test comment. **p50 rather than p99**
+   because this cost is systematic and structural, and the median is the statistic that tracks a
+   structural cost; gating it at p99 would reintroduce the noise sensitivity §9.7 just removed.
+3. **Gate B has a defined end state.** V2's acceptance requires the delta ≤ 0.3 ms, at which point
+   **Gate A is re-run with capture ON and Gate B is retired.** A temporary gate without a removal
+   condition is a permanent gate with an apology.
+
+**The chunk-transit axis needed one refinement, and the reasoning generalises.** Under load the
+kernel coalesces small closely-spaced frames, so *both* arms can observe fewer arrivals than emits
+(151 emits → ~100 arrivals on the 5 ms-cadence fixture). Index-aligning `emit[i]` to `arrival[i]`
+in that state is simply the wrong correspondence and manufactured phantom 13–38 ms transits. The
+rule now: `sut-structure == baseline-structure ≠ emits` ⇒ environmental coalescing ⇒ align transit
+by **cumulative bytes**; any SUT-attributable structural change ⇒ index alignment ⇒ the
+growing-transit buffering signature fires in full. That is the differential philosophy applied
+correctly — the baseline arm is the calibration, so structural agreement between arms means the
+discrepancy is not the SUT's.
+
+**Condition, same as §9.7:** the coalescing state must be **reported**, not silently handled. A run
+where 151 emits became ~100 arrivals is a *weaker* test, because the transit axis is measuring
+something coarser than intended. Emit count, arrival count, and which alignment mode was used must
+appear in the per-fixture diagnostics for every run. If a green result under heavy coalescing is
+indistinguishable from one under clean conditions, the gate's strictness varies invisibly with
+machine load.
+
+**Verified in both directions, per §9.7's condition 2:** `BufferingPipe` still trips the new
+`chunk-transit` axis — arrival #0 versus emit #0 is ~350 ms, the entire buffered stream landing at
+once, which is the exact signature the axis exists to catch. The four V4c fixtures are re-run under
+induced CPU load before the commit; a clean-machine pass alone would not evidence the change, since
+behaviour under load is the whole point.
+
+**Negative results recorded so they are not rediscovered expensively:** in-worker measurement
+produced a 229 ms p99 artefact, so the V4b harness runs in a clean node process; and a
+subprocess-isolated gateway measures *worse* on a single machine (p99 9–17 ms, holdback 8–11 ms)
+than in-process, because cross-process scheduler hops cost more than shared-loop interference.
