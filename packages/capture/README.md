@@ -31,7 +31,7 @@ spec §8), so this tap is the only source of `provenance: captured` fixtures.
   record, never the request.
 - **Zero mutation is MEASURED, not asserted:** `test/tap-fidelity.test.ts` runs
   the tap as a system-under-test through `@observer/rig`'s differential harness
-  over the entire 28-fixture corpus — status, headers, body bytes with offsets,
+  over the entire fixture corpus — status, headers, body bytes with offsets,
   upstream-request bytes, arrival counts/boundaries/gaps, TTFB, truncation
   offsets — and requires zero diffs.
 
@@ -94,7 +94,7 @@ origin only). `OBSERVER_TAP_DEBUG=1` traces exchanges to stderr.
 |---|---|
 | Recorded bytes sha256-stable across capture/replay round trip | **MET** — `test/tap-roundtrip.test.ts`: capture → `startReplayServer` → re-capture, wire sha256 identical |
 | gzip/br stored compressed as received | **MET** — gzip fixture: magic bytes + payload equality asserted on stored wire |
-| Zero mutation of traffic | **MET** — full-corpus differential conformance (29/29) |
+| Zero mutation of traffic | **MET** — full-corpus differential conformance (full-corpus) |
 | Redaction pass before commit | **MET** — `redactCapture()` + tests; raw store untouched |
 | Captures a full REAL DSH→qwen session (streaming, tool calls, reasoning) | **BLOCKED ON A LIVE RUN** — needs the Human/lead to point DSH at the tap (config change outside my sandbox) and run a session. Everything else is ready; the runbook is above. |
 | ≥20-fixture set from live traffic, or documented unobtainables | Unobtainables **DOCUMENTED BELOW**; the export tool (`tools/captures-to-fixtures.mjs`) is **BUILT AND TESTED END TO END** on synthetic captures (capture → convert → rig-load → ReferencePipe conformance, zero diffs) — the live run just feeds it real bytes |

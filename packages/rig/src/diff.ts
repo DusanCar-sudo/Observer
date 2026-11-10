@@ -398,7 +398,7 @@ export function diffRuns(
       detail: `baseline realized ${nBase} body arrivals but the script schedules ${nExpected} — TCP merged segments or the rig mis-decoded; re-run, and if stable, the fixture script needs wider gaps`,
     })
   }
-  if (timing.mode === 'strict') {
+  if (timing.mode === 'strict' || timing.mode === 'boundaries') {
     if (nSut !== nBase) {
       diffs.push({
         kind: 'arrival-count',
@@ -430,7 +430,9 @@ export function diffRuns(
     // k=0 is the gap from request-written to first body byte: it carries upload time
     // and per-hop latency, which the TTFB axis budgets separately. The inter-chunk
     // fidelity signal (V4b's "client must observe the same intervals") lives in k>=1.
-    for (let k = 1; k < n && gapDiffs < MAX_GAP_DIFFS; k++) {
+    // 'boundaries' mode skips gaps entirely: structure is deterministic, timing is
+    // noisy, and a structural guarantee must not flake on scheduler jitter.
+    for (let k = 1; timing.mode === 'strict' && k < n && gapDiffs < MAX_GAP_DIFFS; k++) {
       const gb = gapsB[k]!
       const gs = gapsS[k]!
       if (Math.abs(gs - gb) > timing.gapToleranceMs) {

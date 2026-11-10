@@ -102,8 +102,15 @@ export interface FixtureJson {
   }
   response: ResponseScript
   timing?: {
-    /** strict: per-arrival boundaries + gaps asserted. loose: anti-buffering + TTFB only. */
-    mode?: 'strict' | 'loose'
+    /**
+     * strict: per-arrival boundaries + gaps asserted (vs baseline AND nominal).
+     * boundaries: arrival COUNT + per-arrival byte boundaries asserted, gaps NOT
+     *   asserted — structure is deterministic, timing is noisy; a fixture that
+     *   exists to test boundary preservation at scale (fast small writes) uses
+     *   this mode so scheduler jitter cannot flake a structural guarantee.
+     * loose: anti-buffering + TTFB only.
+     */
+    mode?: 'strict' | 'boundaries' | 'loose'
     gapToleranceMs?: number
     ttfbBudgetMs?: number
   }
@@ -158,7 +165,7 @@ export interface ResolvedFixture {
     expectedArrivals: ExpectedArrival[]
   }
   timing: {
-    mode: 'strict' | 'loose'
+    mode: 'strict' | 'boundaries' | 'loose'
     gapToleranceMs: number
     ttfbBudgetMs: number
   }

@@ -191,6 +191,16 @@
       }
     },
     {
+      "id": "res-stream-many-events",
+      "dir": "res-stream-many-events",
+      "files": {
+        "fixture.json": {
+          "sha256": "086803d622afbb52ca7dce93f90b2b5e1c7dbd202fb6aeed54c080889a2de89f",
+          "bytes": 56528
+        }
+      }
+    },
+    {
       "id": "res-stream-empty-reasoning",
       "dir": "res-stream-empty-reasoning",
       "files": {

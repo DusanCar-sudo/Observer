@@ -90,7 +90,8 @@ function timingOf(fx: FixtureJson): ResolvedFixture['timing'] {
   return {
     mode,
     gapToleranceMs: fx.timing?.gapToleranceMs ?? DEFAULT_TIMING.gapToleranceMs,
-    ttfbBudgetMs: fx.timing?.ttfbBudgetMs ?? (mode === 'loose' ? LOOSE_TTFB_BUDGET_MS : DEFAULT_TIMING.ttfbBudgetMs),
+    ttfbBudgetMs:
+      fx.timing?.ttfbBudgetMs ?? (mode === 'strict' ? DEFAULT_TIMING.ttfbBudgetMs : LOOSE_TTFB_BUDGET_MS),
   }
 }
 

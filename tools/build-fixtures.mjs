@@ -680,6 +680,38 @@ def({
   },
 })
 
+// ---- 17b. boundary preservation at scale ------------------------------------------
+{
+  const c = 'chatcmpl-obsfixture0030'
+  const N = 150
+  const writes = [{ payload: sse(roleChunk(c)), delayMs: 5 }]
+  for (let i = 0; i < N - 2; i++) {
+    writes.push({
+      payload: sse(delta(c, { content: `fragment-${String(i).padStart(3, '0')} ` })),
+      delayMs: 5,
+    })
+  }
+  writes.push({ payload: sse(finish(c, 'stop')), delayMs: 5 })
+  writes.push({ payload: DONE, delayMs: 5 })
+  def({
+    id: 'res-stream-many-events',
+    title: `${writes.length} fast SSE writes — chunk-boundary preservation at scale`,
+    provenance: 'synthetic',
+    tags: ['res:stream-boundaries-at-scale', 'res:stream-done', 'sse'],
+    notes:
+      'V4a: boundary identity must hold at event counts where off-by-one coalescing hides. Timing mode is "boundaries": arrival COUNT and per-arrival byte lengths are asserted; inter-arrival gaps are NOT (structure is deterministic, scheduling is noisy — a structural guarantee must not flake on jitter). Delays are 5ms so the whole stream costs <1s per run.',
+    timing: { mode: 'boundaries' },
+    request: { stream: true, body: simpleRequest('Stream many small fragments.', { stream: true }) },
+    response: {
+      status: 200,
+      reason: 'OK',
+      headers: sseResHeaders(),
+      framing: 'chunked',
+      writes,
+    },
+  })
+}
+
 // ---- 18. empty-string reasoning deltas on every chunk ---------------------------------
 def({
   id: 'res-stream-empty-reasoning',

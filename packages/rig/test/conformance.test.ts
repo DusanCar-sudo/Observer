@@ -46,6 +46,7 @@ describe('ReferencePipe conformance — zero diffs on every fixture', () => {
     'res-stream-split-writes',
     'res-stream-50ms-timing',
     'res-stream-empty-reasoning',
+    'res-stream-many-events',
     'res-stream-interrupted-no-done',
     'res-abort-mid-chunk',
     'res-429-json',
