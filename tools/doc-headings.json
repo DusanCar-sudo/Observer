@@ -268,7 +268,8 @@
     "### 9.3 Recorded transformations are calibrations; unrecorded ones are lies",
     "### 9.4 Two bugs found by tests, promoted to design constraints",
     "### 9.5 V4b's TTFB tail bound is reference-relative, not absolute",
-    "### 9.6 task-17 runbook correction: a live config change does not redirect a running session"
+    "### 9.6 task-17 runbook correction: a live config change does not redirect a running session",
+    "### 9.7 An intermittent timing test is a measurement question before it is a tolerance question"
   ],
   "BRAINSTORM.md": [
     "# Observer — Brainstorm 01: Core Architecture",

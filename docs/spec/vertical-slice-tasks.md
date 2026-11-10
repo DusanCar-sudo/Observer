@@ -751,3 +751,67 @@ verified.
 Both directions of the inference mistake were available here and are worth naming: *absence of
 captures* is not evidence the tap is broken, and *presence of a config change* is not evidence
 traffic moved. The run is recorded as inconclusive-on-capture and conclusive-on-TLS.
+
+### 9.7 An intermittent timing test is a measurement question before it is a tolerance question
+
+During V4c development the machine got noisy enough that the **existing** strict conformance suites
+flaked locally. The diff output is the interesting part — `res-stream-done`, a 30 ms cadence
+fixture, 7 diffs, all of them arrival-gap, zero byte or structure diffs:
+
+```
+baseline gaps:  42.6 / 19.0 / 35.9 / 24.0 / 49.1 ms   <- the MOCK UPSTREAM's arm jittered +/-20ms
+sut gaps:       32.4 / 28.2 / 29.0 / 32.2 / 54.6 ms   <- the gateway arm tracked nominal BETTER
+```
+
+The ground-truth arm was noisier than the arm under test. Nothing was wrong with the gateway.
+
+**Diagnosis: a mis-specified statistic, not a flaky test.** The ±5 ms bound was applied to the
+*difference* between two arms executed at different moments, so it inherits both noises — √2×
+environmental jitter when the noise is uncorrelated. A per-sample bound on a paired delta of two
+independently noisy measurements is the wrong instrument, and no amount of retrying fixes that.
+
+**Rejected: retry-on-failure.** forge proposed keeping the bound but re-running a fixture once on a
+gap diff and requiring the failure to reproduce, or the reference arm to be clean, before failing
+the build. Declined. The conjunction narrows the hole without closing it — an intermittent SUT
+regression that fails to reproduce *and* coincides with a jittery reference arm is suppressed — and
+retry-until-pass is where flake tolerance goes to hide. A retry reinterprets what *pass* means, and
+it is harder to see than a moved constant.
+
+**Adopted: measure the gateway's own added latency, single-arm.** The scripted upstream is ours, so
+it can timestamp its own `write()` calls. Record those during the SUT run and assert:
+
+> for every chunk *i*: `sut_arrival[i] − upstream_emit[i] <= ±5 ms`
+
+The bound does not move. It finally measures the quantity it was always meant to describe, with no
+second arm and no paired-noise inheritance. Failure modes are preserved or sharpened:
+
+- **Coalescing** — still caught by arrival count and boundary offsets, which are structural and
+  already pass deterministically.
+- **Buffering** — caught more sharply: a buffering proxy's `arrival − emit` grows monotonically
+  across the stream instead of staying flat, a clearer signature than a gap delta.
+- **Upstream jitter** — no longer a false positive, because a faithful gateway forwards the
+  upstream's *real* emission times. Whatever polluted the assertion becomes visible evidence.
+
+This also resolves a latent contradiction in the previous dual axes. SUT-vs-nominal is wrong under
+load precisely because a faithful gateway forwards real jitter, so a perfect implementation fails
+whenever the mock stumbles. SUT-vs-baseline is right in principle but noisy in execution because the
+arms are not simultaneous. **SUT-vs-emit is right in principle and single-armed in execution.** The
+other two remain as printed diagnostics; neither is a hard gate.
+
+**Conditions, because this is a reinterpretation:**
+
+1. The report output must say which axis gates and which are diagnostic, and the diagnostic axes
+   must keep printing after they stop being able to fail the build. A measurement that quietly stops
+   being emitted has been deleted, not demoted.
+2. **Prove the fix in both directions.** The four affected fixtures must pass under deliberately
+   induced load, *and* `BufferingPipe` must still fail them. If a buffering double no longer trips
+   the new axis, the axis is wrong. This is the only thing separating "fixed the flake" from
+   "disabled the test".
+3. If per-chunk `arrival − emit` fails after this change, the build is red and it means something.
+
+**The reusable pattern, recorded because it has now happened twice.** The FEEL null hazard
+(`docs/research/lead-verification-feelin.md`) and this are the same shape: **the instrument was
+wrong, not the subject.** In both cases the first instinct is to add tolerance — treat warnings as
+ignorable, treat a failing timing gate as flaky — and in both cases the correct response was to fix
+what was being measured. So: when a test is intermittent, ask what quantity it actually measures
+before asking how much slack to allow.
