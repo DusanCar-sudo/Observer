@@ -165,3 +165,15 @@ packages/              (milestone 1 — in progress)
 - `node tools/check-doc-headings.mjs` must pass. Inserting a section before a heading has silently
   deleted that heading twice in this repo. It fails no test and leaves the prose readable — which is
   exactly the class of damage Observer exists to detect, so we protect our own documents from it.
+  **Run it in check mode first and read what it reports; only then pass `--update`, and only if the
+  change is intentional.** Running `--update` first regenerates the manifest from whatever is on
+  disk and therefore *blesses* any damage already present — a guard used that way manufactures
+  confidence instead of earning it. CI runs check mode only.
+- **Never `git add -A` while another agent is active in the repo.** Stage your own paths explicitly.
+  A blanket add commits a teammate's in-flight work under your message, which misattributes it in
+  history and can freeze a half-finished edit into a commit nobody intended. This has happened
+  here; see the round-3 log.
+- **A check whose harness errored is not a clean negative.** If a command produced no output,
+  confirm the command succeeded before treating the empty result as evidence of absence. Three
+  separate false claims in this project's first day came from reasoning instead of observing, and
+  one came from grepping the output of a command that had silently failed.
