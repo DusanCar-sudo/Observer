@@ -25,6 +25,18 @@
     "### Q-R3 (T8): does the proposed type survive contact with this format?",
     "### Q-R4 (T13/T9): who wins, Observer or the harness, when policies conflict?"
   ],
+  "docs/recon/log-completeness-gap.md": [
+    "# Recon: the session log is not a complete record of filesystem mutations",
+    "## 1. What was observed",
+    "## 2. What the logs show",
+    "## 3. What is NOT known",
+    "## 4. Consequences for Observer",
+    "### 4.1 Silence is not absence",
+    "### 4.2 V7 needs a provenance-of-absence distinction",
+    "### 4.3 It strengthens the gateway relative to the watcher",
+    "### 4.4 An unplanned validation",
+    "## 5. Reproduce"
+  ],
   "docs/research/dmn-benchmark-results.md": [
     "# DMN Decision-Layer Benchmark — Results",
     "## 1. Environment (disclosed per plan §4)",
