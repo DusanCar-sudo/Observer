@@ -7,8 +7,10 @@
  *     --upstream https://token-plan.ap-southeast-1.maas.aliyuncs.com \
  *     --out ./observer-data/captures
  *
- * Then point DSH at it (HOT-RELOADED, reaches the next request without restarting
- * the agent — dsh-llm-pi-ai reads current profiles per operation):
+ * Then point DSH at it — NOTE: the baseURL change does NOT redirect an
+ * already-running session (falsified live 2026-11-10, task-17 pre-flight, despite
+ * a docstring suggesting per-operation profile re-reads). Restart DSH or start a
+ * NEW session after the change, and verify by watching captures appear:
  *
  *   llm-pi-ai.providers.<qwen-route>.baseURL: "http://127.0.0.1:8787/compatible-mode/v1"
  *

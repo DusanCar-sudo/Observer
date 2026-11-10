@@ -32,6 +32,8 @@ export interface GatewayHandle {
   captureIds(): string[]
   /** Live counters — refusals, truncations, capture failures, misdialect verdicts. */
   stats(): GatewayStats
+  /** Live socket accounting (V4d: "no leaked socket" as a measured property). */
+  openSocketCount(): { clients: number; upstreams: number }
   stop(): Promise<void>
 }
 
@@ -78,6 +80,7 @@ export async function startGateway(cfg: GatewayConfig): Promise<GatewayHandle> {
     ...(core.outDir !== undefined ? { outDir: core.outDir } : {}),
     captureIds: () => core.captureIds(),
     stats: () => stats.snapshot(),
+    openSocketCount: () => core.openSocketCount(),
     stop: () => core.stop(),
   }
 }

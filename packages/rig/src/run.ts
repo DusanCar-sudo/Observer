@@ -15,13 +15,19 @@ import { performance } from 'node:perf_hooks'
 import { runClient } from './client.js'
 import { diffRuns } from './diff.js'
 import { startMockUpstream } from './upstream.js'
-import type { FidelityDiff, FidelityRunOptions, FidelityRunReport, RunSide } from './types.js'
+import type { FidelityDiff, FidelityRunOptions, FidelityRunReport, RunSide, TimingDiagnostics } from './types.js'
 
 export async function runFidelityCheck(opts: FidelityRunOptions): Promise<FidelityRunReport> {
   const started = performance.now()
   const { fixture } = opts
   const clientTimeoutMs = opts.clientTimeoutMs ?? 30_000
   const diffs: FidelityDiff[] = []
+  let diagnostics: TimingDiagnostics = {
+    gapVsBaseline: { samples: 0, maxAbsDevMs: 0, meanDevMs: 0 },
+    gapVsNominal: { samples: 0, maxAbsDevMs: 0, meanDevMs: 0 },
+    chunkTransit: { samples: 0, maxMs: 0, meanMs: 0, toleranceMs: 5, spikes: 0, alignment: 'index', emits: 0 },
+    baselineTransit: { samples: 0, maxMs: 0, meanMs: 0 },
+  }
 
   // ---------- baseline run: client -> upstream (direct) ----------
   const upA = await startMockUpstream(fixture.response.script, fixture.response.payloads)
@@ -72,13 +78,18 @@ export async function runFidelityCheck(opts: FidelityRunOptions): Promise<Fideli
     await upB.stop()
   }
 
-  diffs.push(...diffRuns(fixture, baseline, sut, { headerIgnore: opts.headerIgnore, timing: opts.timing }))
+  diffs.push(...(() => {
+    const r = diffRuns(fixture, baseline, sut, { headerIgnore: opts.headerIgnore, timing: opts.timing })
+    diagnostics = r.diagnostics
+    return r.diffs
+  })())
 
   return {
     fixtureId: fixture.id,
     sutName: opts.sut.name,
     passed: diffs.length === 0,
     diffs,
+    diagnostics,
     baseline,
     sut,
     durationMs: performance.now() - started,

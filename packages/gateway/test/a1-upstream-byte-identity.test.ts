@@ -27,6 +27,9 @@ describe('A1 — upstream body byte-identity (full-corpus rig conformance)', () 
     it(
       `A1 + zero-diff conformance: ${fx.id}`,
       async () => {
+        // GC hygiene: harness heap collection stays OUT of the measurement window
+        // (forks run with --expose-gc; safe no-op without it). See rig conformance.
+        ;(globalThis as { gc?: () => void }).gc?.()
         const report = await runFidelityCheck({ fixture: fx, sut: gatewaySut() })
         if (report.diffs.length > 0) {
           throw new Error(`\n${formatReport(report, { timelines: true })}`)

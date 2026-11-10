@@ -109,6 +109,8 @@ async function handleConnection(
     bodyComplete: false,
     clientClosedEarly: false,
     headAtMs: 0,
+    emitEvents: [],
+    responseAborted: false,
   }
   captures.push(capture)
 
@@ -137,7 +139,7 @@ async function handleConnection(
       hash.update(piece)
       bodyPieces.push(Buffer.from(piece))
       bodyCum += take
-      bodyEvents.push({ tMs, bytes: take, cumBytes: bodyCum })
+      bodyEvents.push({ tMs, tAbs: performance.now(), bytes: take, cumBytes: bodyCum })
       remainingForBody -= take
       if (remainingForBody <= 0) {
         capture.bodyComplete = true
@@ -246,6 +248,30 @@ async function handleConnection(
     let sentBodyBytes = 0
     let terminatedEarly = false
 
+    // Emit timeline: the exact instant each scripted payload write is handed to the
+    // kernel. This is the ground truth for the rig's single-arm chunk-transit axis
+    // (spec §9.7): scheduler hiccups land in the emit timestamp itself, so a
+    // faithful forwarder never gets punished for the mock's own jitter.
+    let emitCum = 0
+    const recordEmit = (payloadBytes: number): void => {
+      const now = performance.now()
+      emitCum += payloadBytes
+      capture.emitEvents.push({ tMs: now - t0, tAbs: now, bytes: payloadBytes, cumBytes: emitCum })
+    }
+    const writeScripted = async (wire: Buffer, payloadBytes: number): Promise<boolean> => {
+      try {
+        await writeAsync(socket, wire)
+        recordEmit(payloadBytes)
+        return true
+      } catch {
+        // The receiving end went away mid-script (client abort propagating through
+        // a proxy). Recorded, never retried, never fabricated around.
+        capture.responseAborted = true
+        terminatedEarly = true
+        return false
+      }
+    }
+
     for (let i = 0; i < script.writes.length; i++) {
       const w = script.writes[i]!
       const payload = payloads[i]!
@@ -270,7 +296,7 @@ async function handleConnection(
             script.framing === 'chunked'
               ? Buffer.concat([Buffer.from(`${allowed.toString(16)}\r\n`, 'latin1'), part])
               : part
-          await writeAsync(socket, framed)
+          await writeScripted(framed, allowed)
           socket.destroy()
           terminatedEarly = true
           break
@@ -285,18 +311,18 @@ async function handleConnection(
         if (canSplit) {
           // One chunked frame delivered as TWO TCP writes (mid-frame flush), separated
           // by SPLIT_GAP_MS so the two arrivals stay distinct under load.
-          await writeAsync(socket, Buffer.concat([frameHead, payload.subarray(0, splitAt!)]))
+          if (!(await writeScripted(Buffer.concat([frameHead, payload.subarray(0, splitAt!)]), splitAt!))) break
           await sleep(SPLIT_GAP_MS)
-          await writeAsync(socket, Buffer.concat([payload.subarray(splitAt!), frameTail]))
-        } else {
-          await writeAsync(socket, Buffer.concat([frameHead, payload, frameTail]))
+          if (!(await writeScripted(Buffer.concat([payload.subarray(splitAt!), frameTail]), payload.length - splitAt!))) break
+        } else if (!(await writeScripted(Buffer.concat([frameHead, payload, frameTail]), payload.length))) {
+          break
         }
       } else if (canSplit) {
-        await writeAsync(socket, Buffer.from(payload.subarray(0, splitAt!)))
+        if (!(await writeScripted(Buffer.from(payload.subarray(0, splitAt!)), splitAt!))) break
         await sleep(SPLIT_GAP_MS)
-        await writeAsync(socket, Buffer.from(payload.subarray(splitAt!)))
-      } else {
-        await writeAsync(socket, payload)
+        if (!(await writeScripted(Buffer.from(payload.subarray(splitAt!)), payload.length - splitAt!))) break
+      } else if (!(await writeScripted(payload, payload.length))) {
+        break
       }
       sentBodyBytes += payload.length
 

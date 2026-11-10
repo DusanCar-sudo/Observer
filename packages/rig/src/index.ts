@@ -40,9 +40,15 @@ export {
   DEFAULT_TIMING,
   LOOSE_TTFB_BUDGET_MS,
 } from './fixtures.js'
-export { diffBytes, diffRuns, compareHeaderPairs, MAX_DIFF_REGIONS, type ByteCompareResult } from './diff.js'
-export { formatReport, formatDiff, formatRegions, formatHeaderIssues, formatTimeline } from './report.js'
+export { diffBytes, diffRuns, compareHeaderPairs, MAX_DIFF_REGIONS, type ByteCompareResult, type DiffRunResult } from './diff.js'
+export { formatReport, formatDiff, formatDiagnostics, formatRegions, formatHeaderIssues, formatTimeline } from './report.js'
 export { runFidelityCheck } from './run.js'
+export {
+  runIsolatedConformance,
+  type IsolatedConformanceOptions,
+  type IsolatedRunResult,
+  type IsolatedSide,
+} from './isolated.js'
 export {
   runLatencyBenchmark,
   checkLatencyBudget,

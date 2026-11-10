@@ -526,6 +526,30 @@ def({
   },
 })
 
+// ---- 12b. TTFB statistical probe (V4b harness) ------------------------------------------
+def({
+  id: 'res-stream-ttfb-probe',
+  title: 'Short 4-write stream — the V4b triple/quad-arm TTFB harness probe',
+  provenance: 'synthetic',
+  tags: ['res:stream-ttfb-probe', 'res:stream-done', 'sse'],
+  notes:
+    'Purpose-built for the V4b statistical TTFB harness (packages/gateway/bench/v4b-timing.mjs): a minimal complete SSE stream with short cadence so 400+ interleaved arm-pairs run in minutes. Timing mode "boundaries": structure is asserted; gap timing is the harness\'s job at statistic scale, not per-run here.',
+  timing: { mode: 'boundaries' },
+  request: { stream: true, body: simpleRequest('TTFB probe.', { stream: true }) },
+  response: {
+    status: 200,
+    reason: 'OK',
+    headers: sseResHeaders(),
+    framing: 'chunked',
+    writes: [
+      { payload: sse(roleChunk('chatcmpl-obsfixture0031')), delayMs: 10 },
+      { payload: sse(delta('chatcmpl-obsfixture0031', { content: 'probe' })), delayMs: 10 },
+      { payload: sse(finish('chatcmpl-obsfixture0031', 'stop')), delayMs: 10 },
+      { payload: DONE, delayMs: 10 },
+    ],
+  },
+})
+
 // ---- 13. reasoning_content stream ----------------------------------------------
 def({
   id: 'res-stream-reasoning',
@@ -794,6 +818,43 @@ def({
     },
   })
 }
+
+// ---- 20b. provider error event mid-stream, then socket death -------------------------
+def({
+  id: 'res-stream-error-payload',
+  title: 'Provider error SSE event mid-stream, then socket death (no finish_reason, no [DONE])',
+  provenance: 'synthetic',
+  tags: ['res:stream-error-payload', 'sse', 'truncation'],
+  notes:
+    'V4d: providers can deliver errors IN-band as an SSE error event and then kill the connection (protocol-fidelity §4.3: no error event exists in the official schema — dialects invent them). Both the error payload bytes and the truncation must reach the client verbatim, and no capture may call this complete: no terminal event was observed.',
+  request: { stream: true, body: simpleRequest('This stream errors mid-flight.', { stream: true }) },
+  response: {
+    status: 200,
+    reason: 'OK',
+    headers: sseResHeaders(),
+    framing: 'chunked',
+    writes: [
+      { payload: sse(roleChunk('chatcmpl-obsfixture0032')), delayMs: 20 },
+      { payload: sse(delta('chatcmpl-obsfixture0032', { content: 'partial answer...' })), delayMs: 20 },
+      {
+        payload: sse({
+          id: 'chatcmpl-obsfixture0032',
+          object: 'chat.completion.chunk',
+          created: CREATED,
+          model: MODEL,
+          error: {
+            message: 'Internal server error: inference node lost mid-generation',
+            type: 'server_error',
+            param: null,
+            code: 'internal_error',
+          },
+        }),
+        delayMs: 20,
+      },
+    ],
+    terminate: { kind: 'destroy-after-write', writeIndex: 2 },
+  },
+})
 
 // ---- 21. 429 with JSON error body + retry-after ------------------------------------------
 def({

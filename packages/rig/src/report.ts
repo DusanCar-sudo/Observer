@@ -86,6 +86,8 @@ export function formatDiff(d: FidelityDiff, index: number): string {
       return `${head}: ${d.classification} — expected ${d.expected} arrival(s), baseline ${d.baseline}, sut ${d.sut}`
     case 'arrival-boundary':
       return `${head}: arrival #${d.index} boundary at body offset ${d.offset}: baseline delivered ${d.baselineBytes}B here, sut ${d.sutBytes}B`
+    case 'chunk-transit':
+      return `${head}: chunk #${d.index} arrived ${ms(d.emitToArrivalMs)} after the upstream emitted it (tolerance ${ms(d.toleranceMs)}; emitted ${d.emittedBytes}B, arrived ${d.arrivedBytes}B) — a GROWING series across chunks is the buffering signature`
     case 'arrival-gap':
       return `${head}: arrival #${d.index} gap baseline=${ms(d.baselineGapMs)} sut=${ms(d.sutGapMs)}${d.nominalGapMs !== undefined ? ` nominal=${ms(d.nominalGapMs)}` : ''} tolerance=${ms(d.toleranceMs)} (versus ${d.versus})`
     case 'ttfb':
@@ -99,11 +101,34 @@ export function formatDiff(d: FidelityDiff, index: number): string {
   }
 }
 
+/**
+ * Timing diagnostics (§9.7): printed EVERY run — passing or failing. The gate is
+ * chunk-transit; the gap comparisons are environmental evidence. A diagnostic
+ * that stops being printed is a measurement that quietly stopped existing.
+ */
+export function formatDiagnostics(r: FidelityRunReport): string {
+  const d = r.diagnostics
+  const lines = [
+    `    timing diagnostics (gate = chunk-transit ≤ ${d.chunkTransit.toleranceMs}ms [${d.chunkTransit.alignment}-aligned, ${d.chunkTransit.emits} emits, spikes=${d.chunkTransit.spikes}]; gap axes are evidence, not verdicts):`,
+    `      chunk-transit sut : n=${d.chunkTransit.samples} mean=${d.chunkTransit.meanMs}ms max=${d.chunkTransit.maxMs}ms`,
+    `      chunk-transit base: n=${d.baselineTransit.samples} mean=${d.baselineTransit.meanMs}ms max=${d.baselineTransit.maxMs}ms (loopback noise floor)`,
+    `      gap vs baseline   : n=${d.gapVsBaseline.samples} meanDev=${d.gapVsBaseline.meanDevMs}ms maxAbsDev=${d.gapVsBaseline.maxAbsDevMs}ms`,
+    `      gap vs nominal    : n=${d.gapVsNominal.samples} meanDev=${d.gapVsNominal.meanDevMs}ms maxAbsDev=${d.gapVsNominal.maxAbsDevMs}ms`,
+  ]
+  if (d.environmentalCoalescing) {
+    lines.push(
+      `      environmental coalescing: baseline realized ${d.environmentalCoalescing.realized}/${d.environmentalCoalescing.expected} scheduled arrivals; sut mirrored baseline exactly (structural comparison still gated)`,
+    )
+  }
+  return lines.join('\n')
+}
+
 export function formatReport(r: FidelityRunReport, opts: { timelines?: boolean } = {}): string {
   const lines: string[] = []
   const verdict = r.passed ? 'PASSED (0 diffs)' : `FAILED (${r.diffs.length} diff${r.diffs.length === 1 ? '' : 's'})`
   lines.push(`fixture ${r.fixtureId} vs SUT "${r.sutName}" — ${verdict} [${r.durationMs.toFixed(0)}ms]`)
   r.diffs.forEach((d, i) => lines.push(formatDiff(d, i)))
+  lines.push(formatDiagnostics(r))
   if (opts.timelines && !r.passed) {
     lines.push('    baseline arrival timeline:')
     lines.push(formatTimeline(r.baseline))

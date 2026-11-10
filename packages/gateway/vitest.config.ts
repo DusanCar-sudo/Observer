@@ -6,6 +6,7 @@ export default defineConfig({
     // rig-conformance timing axes need a quiet machine: one file at a time.
     fileParallelism: false,
     pool: 'forks',
+    poolOptions: { forks: { execArgv: ['--expose-gc'] } },
     testTimeout: 300_000,
     hookTimeout: 120_000,
   },

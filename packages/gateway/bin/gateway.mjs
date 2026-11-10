@@ -7,13 +7,16 @@
  *     --upstream https://token-plan.ap-southeast-1.maas.aliyuncs.com \
  *     --capture-out ./observer-data/captures
  *
- * Then point DSH at it (hot-reloaded; reaches the next request without restart):
+ * Then point DSH at it — the baseURL change does NOT redirect an already-running
+ * session (falsified live 2026-11-10, task-17 pre-flight): restart DSH or start a
+ * NEW session after the change, and verify by watching captures/stats appear:
  *
  *   llm-pi-ai.providers.<qwen-route>.baseURL: "http://127.0.0.1:8788/compatible-mode/v1"
  *
  * Milestone 1 is OBSERVE-ONLY: the gateway forwards bytes, records bytes, refuses
  * what it does not support, and mutates nothing. Restore the original baseURL to
- * remove Observer from the path — reversibility without restarting the agent (I4).
+ * remove Observer from the path — reversibility without code changes (I4; the
+ * restore, like the install, takes effect on restart/new session).
  *
  * Stats are printed periodically (default 30s) because a number nobody reads
  * protects nobody (§9.1 condition 1).

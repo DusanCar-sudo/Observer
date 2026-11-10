@@ -141,6 +141,16 @@
       }
     },
     {
+      "id": "res-stream-ttfb-probe",
+      "dir": "res-stream-ttfb-probe",
+      "files": {
+        "fixture.json": {
+          "sha256": "5f960eab46721a4d78b914177851c7d42fb152b96ce29a105662efea0bbb70dc",
+          "bytes": 3683
+        }
+      }
+    },
+    {
       "id": "res-stream-reasoning",
       "dir": "res-stream-reasoning",
       "files": {
@@ -227,6 +237,16 @@
         "fixture.json": {
           "sha256": "d0a27ce762f7639c7e5736a1c529e343ff84a99703ecaeb842860803462c9cf2",
           "bytes": 4117
+        }
+      }
+    },
+    {
+      "id": "res-stream-error-payload",
+      "dir": "res-stream-error-payload",
+      "files": {
+        "fixture.json": {
+          "sha256": "f721c825d619ebfbd0e50a8b5bfa95b83392c0a176b7d31dc3e8afaca142882a",
+          "bytes": 3743
         }
       }
     },

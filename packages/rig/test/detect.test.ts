@@ -162,7 +162,7 @@ describe('detection: timing sins — THE coalescing tests (final bytes are ident
   )
 
   it(
-    'BufferingPipe is caught by TTFB + single arrival while body sha256 stays IDENTICAL',
+    'BufferingPipe is caught by TTFB + single arrival + chunk-transit while body sha256 stays IDENTICAL',
     async () => {
       const r = await run('res-stream-50ms-timing', BufferingPipe)
       expect(has(r, 'response-body-bytes')).toBe(false)
@@ -172,18 +172,28 @@ describe('detection: timing sins — THE coalescing tests (final bytes are ident
       // buffered to completion: first byte arrives only after the whole 8x50ms script ran
       expect(ttfb.deltaMs).toBeGreaterThan(200)
       expect(r.sut.client.bodyEvents.length).toBe(1)
+      // §9.7 proof (lead's condition): the single-arm chunk-transit axis ALSO
+      // catches buffering — the first chunk arrives hundreds of ms after its
+      // emit. If this assertion ever stops holding, the transit axis is wrong.
+      expect(has(r, 'chunk-transit'), 'buffering MUST trip the chunk-transit axis').toBe(true)
+      const transit = r.diffs.find((d) => d.kind === 'chunk-transit') as Extract<FidelityDiff, { kind: 'chunk-transit' }>
+      expect(transit.emitToArrivalMs).toBeGreaterThan(50)
     },
     60_000,
   )
 
   it(
-    'gap diffs report baseline, sut and nominal gaps with the tolerance',
+    'coalescing is caught structurally (count) and the diagnostic axes stay populated where measurable (§9.7)',
     async () => {
       const r = await run('res-stream-50ms-timing', CoalescingPipe)
-      const gaps = r.diffs.filter((d) => d.kind === 'arrival-gap')
-      // coalescing to one arrival may starve per-index gap comparisons; either gaps or
-      // the count diff must fire — never neither
-      expect(gaps.length > 0 || has(r, 'arrival-count')).toBe(true)
+      // The structural gate catches coalescing deterministically:
+      expect(has(r, 'arrival-count') || has(r, 'chunk-transit')).toBe(true)
+      // Full coalescing leaves ONE sut arrival, so per-gap diagnostics have no
+      // samples to compute — the fields must still exist (a diagnostic that
+      // vanishes is a measurement that quietly stopped existing), and the
+      // chunk-transit summary must record the emit count it saw.
+      expect(r.diagnostics.gapVsBaseline.samples).toBeGreaterThanOrEqual(0)
+      expect(r.diagnostics.chunkTransit.emits).toBe(8)
     },
     60_000,
   )

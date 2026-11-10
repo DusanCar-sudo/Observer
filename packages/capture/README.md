@@ -73,8 +73,7 @@ node packages/capture/bin/tap.mjs \
   --out ./observer-data/captures
 ```
 
-Then in DSH settings (hot-reloaded — reaches the next request without restarting
-the agent; evidence: `dsh-llm-pi-ai/lib/index.js` re-reads profiles per operation):
+Then in DSH settings:
 
 ```yaml
 llm-pi-ai:
@@ -82,6 +81,16 @@ llm-pi-ai:
     <qwen-route>:
       baseURL: "http://127.0.0.1:8787/compatible-mode/v1"
 ```
+
+**The config change does NOT redirect an already-running session.** A docstring
+in `dsh-llm-pi-ai` suggests profiles are re-read per operation, but lead's live
+experiment (2026-11-10, task-17 pre-flight) falsified it for `baseURL`: a real
+DSH inference inside the window never reached the tap. Mechanism unverified
+(likely a cached provider client or connection pool), the operational fact is
+verified: **restart DSH, or start a brand-new session after the change**, and
+VERIFY SUCCESS BY OBSERVING A CAPTURE APPEAR — absence of captures is not
+evidence the tap is broken, and a config change on disk is not evidence traffic
+moved.
 
 Run the agent session, then restore the original `baseURL`. The tap forwards the
 request target verbatim, so keep the upstream path suffix the provider expects

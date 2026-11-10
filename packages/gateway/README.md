@@ -41,6 +41,9 @@ and never re-serialise onto the wire.
 | A8 refusals (corrected, §9.1) | `a8-refusals.test.ts` | path + `anthropic-version` header refusals only; `/v1/responses` → 501 `unsupported-protocol`; refusals captured (`status: refused`) and counted; large refused bodies drained (client reliably receives the 501); `refuseOnBodyShape: true` FAILS STARTUP in milestone 1 — the gateway refuses to pretend at enforcement it cannot perform |
 | §9.4 named race | `keepalive-finalize-race.test.ts` | next-request bytes during write-behind finalization are requeued, never misread as pipelining |
 | §9.1 counted & visible | `stats-visibility.test.ts` | snapshot isolation; `misdialectVerdicts` slot live at zero from day one; V3 feed hook ready |
+| V4a socket-byte identity | `v4a-stream-byte-identity.test.ts` | per-arrival byte-length/cum-offset identity vs baseline on every streaming shape (splits incl. mid-UTF-8-character, 151-event scale, truncation offsets); ORDERING tests: truncation/abort counters consistent before the client can observe the close; recording↔delivery agreement |
+| V4b timing fidelity | `v4b-timing-fidelity.test.ts` + `bench/` | four-arm interleaved TTFB gates (A: capture-off p99 ≤ same-session ReferencePipe p99; B: capture cost p50 ≤ 1.5 ms derived, retires at V2 ≤0.3 ms; shipping p50 < 5 ms absolute) + per-chunk `arrival−emit` ≤ 5 ms hard over 25 fresh-process runs of the 50 ms cadence fixture; all distributions printed every run |
+| V4c framing edge cases | `v4c-framing.test.ts` | event split across TCP writes AND chunked frames; `[DONE]` exactly once, never parsed (structural: no JSON codec exists); `obfuscation` named regression + teeth-proof via SseRewritingPipe; gzip/br untouched (§8); corpus-wide non-injection sweep (no keepalive comments — lead constraint) |
 
 ## Events and stats
 
@@ -63,7 +66,9 @@ assumption is wrong somewhere — a finding about Observer, not about traffic.
 pnpm --filter @observer/gateway build
 node packages/gateway/bin/gateway.mjs --listen-port 8788 \
   --upstream https://token-plan.ap-southeast-1.maas.aliyuncs.com
-# DSH settings (hot-reloaded, reversible — I4):
+# DSH settings (reversible — I4; requires DSH RESTART or a NEW session: the
+# baseURL change does not redirect an already-running session — falsified live
+# 2026-11-10; verify by watching captures/stats appear):
 #   llm-pi-ai.providers.<qwen-route>.baseURL: "http://127.0.0.1:8788/compatible-mode/v1"
 ```
 
@@ -71,9 +76,10 @@ node packages/gateway/bin/gateway.mjs --listen-port 8788 \
 
 - HTTP/1.1 only; HTTP/2 is V4e (the rig's `Sut` seam is transport-agnostic, but
   h2 client/upstream twins do not exist yet).
-- Streaming works (the full corpus conformance includes every streaming
-  fixture) but V4a–V4e own its hardening: SSE-specific criteria, fault-injection
-  matrices, transport matrix, backpressure-under-slow-store.
+- Streaming: V4a (socket-byte identity) and V4c (framing edge cases) suites live
+  in this package and are green, including under induced CPU load (8 burners on
+  16 cores: v4c 9/9, a1 31/31). V4d (fault-injection matrix) and V4e (transport
+  matrix, slow-store backpressure) remain.
 - No upstream connection pooling (fresh connection per request; documented in
   proxy-core). Loopback-measured A7 is unaffected; the live TLS run (task-17)
   will measure the handshake cost before pooling is decided — V4e territory.

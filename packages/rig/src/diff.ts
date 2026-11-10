@@ -31,6 +31,7 @@ import type {
   HeaderPairs,
   ResolvedFixture,
   RunSide,
+  TimingDiagnostics,
 } from './types.js'
 
 export const MAX_DIFF_REGIONS = 64
@@ -258,15 +259,20 @@ function gapsOf(side: RunSide): number[] {
   return gaps
 }
 
+export interface DiffRunResult {
+  diffs: FidelityDiff[]
+  diagnostics: TimingDiagnostics
+}
+
 export function diffRuns(
   fixture: ResolvedFixture,
   baseline: RunSide,
   sut: RunSide,
   opts: {
     headerIgnore?: readonly string[] | undefined
-    timing?: { mode?: 'strict' | 'loose'; gapToleranceMs?: number; ttfbBudgetMs?: number } | undefined
+    timing?: { mode?: 'strict' | 'boundaries' | 'loose'; gapToleranceMs?: number; ttfbBudgetMs?: number } | undefined
   } = {},
-): FidelityDiff[] {
+): DiffRunResult {
   const diffs: FidelityDiff[] = []
   const extraIgnore = new Set((opts.headerIgnore ?? []).map((n) => n.toLowerCase()))
   const timing = {
@@ -274,19 +280,25 @@ export function diffRuns(
     gapToleranceMs: opts.timing?.gapToleranceMs ?? fixture.timing.gapToleranceMs,
     ttfbBudgetMs: opts.timing?.ttfbBudgetMs ?? fixture.timing.ttfbBudgetMs,
   }
+  const diagnostics: TimingDiagnostics = {
+    gapVsBaseline: { samples: 0, maxAbsDevMs: 0, meanDevMs: 0 },
+    gapVsNominal: { samples: 0, maxAbsDevMs: 0, meanDevMs: 0 },
+    chunkTransit: { samples: 0, maxMs: 0, meanMs: 0, toleranceMs: timing.gapToleranceMs, spikes: 0, alignment: 'index', emits: 0 },
+    baselineTransit: { samples: 0, maxMs: 0, meanMs: 0 },
+  }
 
   // ---- protocol-level sanity ----
   if (baseline.client.timedOut) {
     diffs.push({ kind: 'rig-error', detail: 'baseline run timed out — fixture script or rig is broken (the direct path must always work)' })
-    return diffs
+    return { diffs, diagnostics }
   }
   if (!baseline.client.head) {
     diffs.push({ kind: 'rig-error', detail: `baseline run received no response head (socketError=${baseline.client.socketError ?? 'none'})` })
-    return diffs
+    return { diffs, diagnostics }
   }
   if (!baseline.upstream) {
     diffs.push({ kind: 'rig-error', detail: 'baseline run: mock upstream recorded no request' })
-    return diffs
+    return { diffs, diagnostics }
   }
   // Baseline self-check: the upstream must have seen exactly the fixture bytes.
   if (baseline.upstream.bodySha256 !== sha256Hex(fixture.request.body)) {
@@ -294,7 +306,7 @@ export function diffRuns(
       kind: 'rig-error',
       detail: `baseline upstream body sha ${baseline.upstream.bodySha256} != fixture request sha ${sha256Hex(fixture.request.body)} — rig/client bug`,
     })
-    return diffs
+    return { diffs, diagnostics }
   }
   if (sut.client.timedOut) {
     diffs.push({ kind: 'protocol', side: 'sut', detail: 'SUT run timed out — the SUT hung or swallowed the stream' })
@@ -339,7 +351,7 @@ export function diffRuns(
     if (lineIssues.length > 0) diffs.push({ kind: 'upstream-request-headers', issues: lineIssues })
   }
 
-  if (!sut.client.head || !baseline.client.head) return diffs
+  if (!sut.client.head || !baseline.client.head) return { diffs, diagnostics }
 
   // ---- response status ----
   const bHead = baseline.client.head
@@ -393,11 +405,97 @@ export function diffRuns(
   const nBase = baseline.client.bodyEvents.length
   const nSut = sut.client.bodyEvents.length
   if (nExpected > 0 && nBase !== nExpected) {
-    diffs.push({
-      kind: 'rig-error',
-      detail: `baseline realized ${nBase} body arrivals but the script schedules ${nExpected} — TCP merged segments or the rig mis-decoded; re-run, and if stable, the fixture script needs wider gaps`,
-    })
+    if (timing.mode === 'boundaries' && nSut === nBase) {
+      // 'boundaries' fixtures use fast, small writes precisely to stress structure
+      // at scale; under machine load the kernel may coalesce closely-spaced frames
+      // IDENTICALLY on both arms. The structural contract of this mode is
+      // sut-structure == baseline-structure (still asserted hard below); the
+      // script-realization shortfall is environmental evidence, not a rig error.
+      diagnostics.environmentalCoalescing = { expected: nExpected, realized: nBase }
+    } else {
+      diffs.push({
+        kind: 'rig-error',
+        detail: `baseline realized ${nBase} body arrivals but the script schedules ${nExpected} — TCP merged segments or the rig mis-decoded; re-run, and if stable, the fixture script needs wider gaps`,
+      })
+    }
   }
+
+  // ---- §9.7 chunk transit: THE timing gate, single-arm ----
+  // Per chunk: client arrival (absolute clock) minus the instant the upstream
+  // handed that write to the kernel. The upstream's own scheduler jitter is
+  // recorded IN its emit timestamp, so a faithful forwarder is never punished
+  // for the mock's hiccups — and a buffering proxy shows up as transit that
+  // GROWS across the stream. Applied in every timing mode: it bounds the SUT's
+  // added latency, which is cadence-independent.
+  //
+  // ALIGNMENT RULE (measured, not theoretical): under machine load the kernel
+  // may coalesce small closely-spaced frames, so a client can observe FEWER
+  // arrivals than the upstream emitted — on BOTH arms identically. Index-
+  // aligning in that state compares arrival k against the wrong emit and
+  // manufactures phantom multi-ms "transits" (observed: 151 emits → ~100
+  // arrivals on both arms → phantom 13–38ms series). So:
+  //   - sut arrival structure == baseline arrival structure, but != emits
+  //     ⇒ ENVIRONMENTAL coalescing ⇒ align by cumulative BYTES (the emit that
+  //       completed each arrival's byte range) — sound under coalescing;
+  //   - otherwise ⇒ index alignment — a SUT that coalesces or buffers when the
+  //       baseline did not gets its transit measured against the original emit
+  //       schedule, which is exactly the growing-transit buffering signature
+  //       (BufferingPipe: arrival #0 vs emit #0 ≈ the whole buffered stream).
+  const transitOf = (side: RunSide, sameStructureAsBaseline: boolean): number[] => {
+    const emits = side.upstream?.emitEvents ?? []
+    const arrivals = side.client.bodyEvents
+    if (emits.length === 0 || arrivals.length === 0) return []
+    const indexAligned = arrivals.length === emits.length || !sameStructureAsBaseline
+    const out: number[] = []
+    if (indexAligned) {
+      const n = Math.min(emits.length, arrivals.length)
+      for (let k = 0; k < n; k++) out.push(arrivals[k]!.tAbs - emits[k]!.tAbs)
+    } else {
+      let j = 0
+      for (let k = 0; k < arrivals.length; k++) {
+        const cum = arrivals[k]!.cumBytes
+        while (j < emits.length - 1 && emits[j]!.cumBytes < cum) j++
+        out.push(arrivals[k]!.tAbs - emits[j]!.tAbs)
+      }
+    }
+    return out
+  }
+  const summarize = (xs: number[]): { samples: number; maxMs: number; meanMs: number } => ({
+    samples: xs.length,
+    maxMs: xs.length ? round1(Math.max(...xs)) : 0,
+    meanMs: xs.length ? round1(xs.reduce((a, b) => a + b, 0) / xs.length) : 0,
+  })
+  const nSutEmits = sut.upstream?.emitEvents.length ?? 0
+  const environmentalCoalescing = nSut > 0 && nSut === nBase && nSut !== nSutEmits
+  const sutTransit = transitOf(sut, environmentalCoalescing)
+  const nBaseEmits = baseline.upstream?.emitEvents.length ?? 0
+  const baseTransit = transitOf(baseline, nBase > 0 && nBase === nSut && nBase !== nBaseEmits)
+  diagnostics.chunkTransit = {
+    ...summarize(sutTransit),
+    toleranceMs: timing.gapToleranceMs,
+    spikes: sutTransit.filter((t) => Math.abs(t) > timing.gapToleranceMs).length,
+    alignment: environmentalCoalescing ? 'cumulative' : 'index',
+    emits: nSutEmits,
+  }
+  diagnostics.baselineTransit = summarize(baseTransit)
+  {
+    let transitDiffs = 0
+    for (let k = 0; k < sutTransit.length && transitDiffs < MAX_GAP_DIFFS; k++) {
+      const t = sutTransit[k]!
+      if (Math.abs(t) > timing.gapToleranceMs) {
+        diffs.push({
+          kind: 'chunk-transit',
+          index: k,
+          emitToArrivalMs: round1(t),
+          toleranceMs: timing.gapToleranceMs,
+          emittedBytes: sut.upstream?.emitEvents[k]?.bytes ?? -1,
+          arrivedBytes: sut.client.bodyEvents[k]?.bytes ?? -1,
+        })
+        transitDiffs++
+      }
+    }
+  }
+
   if (timing.mode === 'strict' || timing.mode === 'boundaries') {
     if (nSut !== nBase) {
       diffs.push({
@@ -424,42 +522,6 @@ export function diffRuns(
         boundaryDiffs++
       }
     }
-    const gapsB = gapsOf(baseline)
-    const gapsS = gapsOf(sut)
-    let gapDiffs = 0
-    // k=0 is the gap from request-written to first body byte: it carries upload time
-    // and per-hop latency, which the TTFB axis budgets separately. The inter-chunk
-    // fidelity signal (V4b's "client must observe the same intervals") lives in k>=1.
-    // 'boundaries' mode skips gaps entirely: structure is deterministic, timing is
-    // noisy, and a structural guarantee must not flake on scheduler jitter.
-    for (let k = 1; timing.mode === 'strict' && k < n && gapDiffs < MAX_GAP_DIFFS; k++) {
-      const gb = gapsB[k]!
-      const gs = gapsS[k]!
-      if (Math.abs(gs - gb) > timing.gapToleranceMs) {
-        diffs.push({
-          kind: 'arrival-gap',
-          index: k,
-          baselineGapMs: round1(gb),
-          sutGapMs: round1(gs),
-          toleranceMs: timing.gapToleranceMs,
-          versus: 'baseline',
-        })
-        gapDiffs++
-      }
-      const nominal = fixture.response.expectedArrivals[k]?.nominalGapMs
-      if (nominal !== undefined && Math.abs(gs - nominal) > timing.gapToleranceMs) {
-        diffs.push({
-          kind: 'arrival-gap',
-          index: k,
-          baselineGapMs: round1(gb),
-          sutGapMs: round1(gs),
-          nominalGapMs: nominal,
-          toleranceMs: timing.gapToleranceMs,
-          versus: 'nominal',
-        })
-        gapDiffs++
-      }
-    }
   } else {
     // loose: only detect buffering-to-completion (the failure loose mode still must catch)
     if (nBase > 1 && nSut <= 1) {
@@ -467,7 +529,33 @@ export function diffRuns(
     }
   }
 
-  // ---- TTFB (both modes) ----
+  // ---- gap DIAGNOSTICS (§9.7: printed every run, gate nothing) ----
+  // Under machine load the mock upstream's own arm jitters, and a faithful
+  // forwarder inherits that jitter honestly — so paired and nominal gap
+  // comparisons are evidence about the ENVIRONMENT, not verdicts on the SUT.
+  // They must stay visible: a diagnostic that stops being printed is a
+  // measurement that quietly stopped existing.
+  {
+    const gapsB = gapsOf(baseline)
+    const gapsS = gapsOf(sut)
+    const n = Math.min(gapsB.length, gapsS.length)
+    const baseDevs: number[] = []
+    const nomDevs: number[] = []
+    for (let k = 1; k < n; k++) {
+      baseDevs.push(gapsS[k]! - gapsB[k]!)
+      const nominal = fixture.response.expectedArrivals[k]?.nominalGapMs
+      if (nominal !== undefined) nomDevs.push(gapsS[k]! - nominal)
+    }
+    const devStats = (xs: number[]): { samples: number; maxAbsDevMs: number; meanDevMs: number } => ({
+      samples: xs.length,
+      maxAbsDevMs: xs.length ? round1(Math.max(...xs.map(Math.abs))) : 0,
+      meanDevMs: xs.length ? round1(xs.reduce((a, b) => a + b, 0) / xs.length) : 0,
+    })
+    diagnostics.gapVsBaseline = devStats(baseDevs)
+    diagnostics.gapVsNominal = devStats(nomDevs)
+  }
+
+  // ---- TTFB (all modes) ----
   if (baseline.client.ttfbMs !== undefined && sut.client.ttfbMs !== undefined) {
     const delta = sut.client.ttfbMs - baseline.client.ttfbMs
     if (delta > timing.ttfbBudgetMs) {
@@ -481,7 +569,7 @@ export function diffRuns(
     }
   }
 
-  return diffs
+  return { diffs, diagnostics }
 }
 
 function round1(x: number): number {

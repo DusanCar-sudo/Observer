@@ -135,6 +135,12 @@ export interface ProxyCoreHandle {
   /** Resolved capture dir when the built-in recorder is used. */
   outDir?: string | undefined
   captureIds(): string[]
+  /**
+   * Live socket accounting — makes "no leaked socket, no hung keep-alive agent"
+   * (V4d) a MEASURED property instead of an asserted one. Clients = DSH-side
+   * connections; upstreams = provider-side connections the core currently holds.
+   */
+  openSocketCount(): { clients: number; upstreams: number }
   stop(): Promise<void>
 }
 
@@ -314,6 +320,7 @@ export async function startProxy(cfg: ProxyCoreConfig): Promise<ProxyCoreHandle>
     origin: `http://${cfg.listenHost ?? '127.0.0.1'}:${address.port}`,
     ...(resolvedOutDir !== undefined ? { outDir: resolvedOutDir } : {}),
     captureIds: () => [...captureIds],
+    openSocketCount: () => ({ clients: clientSockets.size, upstreams: upstreamSockets.size }),
     stop: async () => {
       for (const s of clientSockets) s.destroy()
       for (const s of upstreamSockets) s.destroy()

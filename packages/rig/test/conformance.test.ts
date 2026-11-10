@@ -4,79 +4,56 @@
  *
  * This is one half of the rig's self-verification (detect.test.ts is the other):
  * a rig that flags a faithful proxy produces false alarms that train everyone to
- * ignore it; a rig that passes everything proves nothing. Both halves together are
- * what make "the rig is green" a meaningful sentence — the standard V1's A1/A3 and
- * V4's socket-byte identity will be judged by.
+ * ignore it; a rig that passes everything proves nothing. Both halves together
+ * are what make "the rig is green" a meaningful sentence.
  *
- * Runs sequentially (fileParallelism: false in vitest.config.ts) because timing
- * fidelity is under test: parallel files would manufacture scheduler jitter.
+ * EXECUTION ENVIRONMENT (lead decision 2026-11-10): these runs execute in ONE
+ * plain-node CHILD PROCESS for the whole suite (bin/isolated-conformance.mjs),
+ * not inside the vitest worker. The chunk-transit gate stayed hard at ±5ms per
+ * chunk; what changed is where the measurement is taken. In-worker runs showed
+ * ~0.4%/run single-chunk spikes (6-11ms) from worker starvation while the same
+ * code in fresh processes measured 0 spikes over ~1050 samples.
+ * CONSEQUENCE, PERMANENT: under child-process isolation a transit spike is a
+ * REAL FINDING — never reclassify it as environmental. Isolation exists precisely
+ * to remove the environmental explanation.
  */
 
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { loadCorpus } from '../src/fixtures.js'
-import { formatReport } from '../src/report.js'
-import { runFidelityCheck } from '../src/run.js'
-import { ReferencePipe } from '../src/testdoubles/reference-pipe.js'
-import type { ResolvedFixture } from '../src/types.js'
+import { runIsolatedConformance } from '../src/isolated.js'
 
-let corpus: ResolvedFixture[] = []
+const SUT_MODULE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'suts', 'reference.mjs')
 
-describe('ReferencePipe conformance — zero diffs on every fixture', () => {
-  it('loads the corpus', async () => {
-    corpus = await loadCorpus()
-    expect(corpus.length).toBeGreaterThanOrEqual(20)
-  }, 120_000)
+// One batched child process for the whole suite; results marshalled back as NDJSON.
+const results = await runIsolatedConformance({ sutModule: SUT_MODULE, fixtures: 'all', timeoutMs: 900_000 })
+const byId = new Map(results.map((r) => [r.id, r]))
 
-  const ids = [
-    'req-40-tools-nonstream',
-    'req-reasoning-history',
-    'req-empty-fields',
-    'req-number-formats',
-    'req-unicode-escapes',
-    'req-big-5mb',
-    'req-stream-options',
-    'req-long-system',
-    'req-tool-results',
-    'req-identity-fields',
-    'res-nonstream-json',
-    'res-stream-done',
-    'res-stream-reasoning',
-    'res-stream-parallel-tools',
-    'res-stream-obfuscation',
-    'res-stream-split-writes',
-    'res-stream-50ms-timing',
-    'res-stream-empty-reasoning',
-    'res-stream-many-events',
-    'res-stream-interrupted-no-done',
-    'res-abort-mid-chunk',
-    'res-429-json',
-    'res-400-json-invalid',
-    'res-502-nonjson',
-    'res-gzip-nonstream',
-    'res-br-nonstream',
-    'res-headers-passthrough',
-    'res-stream-unicode-split',
-    'res-stream-retry-partial',
-    'res-stream-retry-complete',
-  ]
+describe('ReferencePipe conformance — zero diffs on every fixture (child-process isolated)', () => {
+  it('the corpus ran in full (>=30 fixtures, no runner losses)', () => {
+    expect(results.length).toBeGreaterThanOrEqual(30)
+    expect(results.every((r) => r.diffCount !== -1), 'runner exception in at least one fixture').toBe(true)
+  })
 
-  for (const id of ids) {
-    it(
-      `passes byte/timeline fidelity: ${id}`,
-      async () => {
-        if (corpus.length === 0) corpus = await loadCorpus()
-        const fx = corpus.find((f) => f.id === id)
-        expect(fx, `fixture ${id} missing from corpus`).toBeDefined()
-        const report = await runFidelityCheck({ fixture: fx!, sut: ReferencePipe })
-        // On failure, throw the full formatted report — offsets, hex, timelines.
-        // (vitest does not invoke a function passed as expect()'s message argument,
-        // so the report is rendered into the thrown error instead.)
-        if (report.diffs.length > 0) {
-          throw new Error(`\n${formatReport(report, { timelines: true })}`)
-        }
-        expect(report.passed).toBe(true)
-      },
-      120_000,
-    )
+  for (const r of results) {
+    it(`passes byte/timeline fidelity: ${r.id}`, () => {
+      // §9.7: diagnostics print EVERY run — a diagnostic that stops being printed
+      // is a measurement that quietly stopped existing. The spikes counter
+      // distinguishes a clean run from a run that survived near the bound.
+      console.log(`[conformance:${r.id}] ${r.diagnosticsLine}`)
+      if (!r.passed) throw new Error(`\n${r.report}`)
+      expect(r.diffCount).toBe(0)
+    })
   }
+
+  it('no fixture leaked transit spikes without failing (spikes>0 must imply !passed)', () => {
+    for (const r of results) {
+      const spikes = r.diagnostics?.chunkTransit.spikes ?? 0
+      if (spikes > 0) {
+        // Under isolation this is a REAL finding (see file header) — surface loudly.
+        expect(r.passed, `${r.id}: ${spikes} transit spike(s) under child-process isolation are a real finding, not environment`).toBe(false)
+      }
+    }
+  })
+  void byId
 })

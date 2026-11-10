@@ -115,10 +115,11 @@ export function runClient(opts: ClientRunOptions): Promise<ClientResult> {
 
     socket.on('data', (data: Buffer) => {
       if (t0 === undefined) return // data before our write flushed: not expected; ignore defensively
-      const tMs = performance.now() - t0
+      const now = performance.now()
+      const tMs = now - t0
       if (ttfbMs === undefined) ttfbMs = tMs
       wireCum += data.length
-      wireEvents.push({ tMs, bytes: data.length, cumBytes: wireCum })
+      wireEvents.push({ tMs, tAbs: now, bytes: data.length, cumBytes: wireCum })
       let decoded: Buffer
       try {
         decoded = decoder.feed(data)
@@ -131,7 +132,7 @@ export function runClient(opts: ClientRunOptions): Promise<ClientResult> {
         hash.update(decoded)
         bodyPieces.push(decoded)
         bodyCum += decoded.length
-        bodyEvents.push({ tMs, bytes: decoded.length, cumBytes: bodyCum })
+        bodyEvents.push({ tMs, tAbs: now, bytes: decoded.length, cumBytes: bodyCum })
       }
       if (decoder.outcome === 'complete') {
         // Framing says we are done. Do not wait for the server to close (it may hold

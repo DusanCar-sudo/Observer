@@ -178,6 +178,13 @@ export interface ResolvedFixture {
 export interface ArrivalEvent {
   /** Milliseconds since t0 (client: request fully written; upstream: request head complete). */
   tMs: number
+  /**
+   * Absolute performance.now() timestamp. Client arrivals and upstream emit
+   * timestamps share the process clock, which is what makes the single-arm
+   * per-chunk transit measurement (arrival − emit) possible without a second
+   * baseline run and its √2 noise inheritance (spec §9.7).
+   */
+  tAbs: number
   bytes: number
   cumBytes: number
 }
@@ -240,6 +247,16 @@ export interface UpstreamRequestCapture {
   clientClosedEarly: boolean
   headAtMs: number
   bodyDoneAtMs?: number | undefined
+  /**
+   * Per-TCP-write EMIT timeline of the scripted response: the exact instants the
+   * upstream handed each write to the kernel (split halves are separate entries).
+   * This is the ground truth for the single-arm chunk-transit axis: a faithful
+   * forwarder delivers chunk i within tolerance of emit i, regardless of how the
+   * upstream's own scheduler jittered — the hiccup is recorded IN the emit time.
+   */
+  emitEvents: ArrivalEvent[]
+  /** True when the scripted response delivery was cut short (client/gateway went away). */
+  responseAborted: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +332,21 @@ export type FidelityDiff =
     }
   | { kind: 'arrival-boundary'; index: number; offset: number; baselineBytes: number; sutBytes: number }
   | {
+      /**
+       * The §9.7 timing gate: single-arm per-chunk added latency. Chunk i arrived
+       * at the client more than tolerance after the upstream EMITTED it. No second
+       * run, no paired noise: the upstream's own scheduler jitter is recorded in
+       * the emit timestamp and cancels out. A buffering proxy shows this as
+       * monotonically GROWING transit across the stream.
+       */
+      kind: 'chunk-transit'
+      index: number
+      emitToArrivalMs: number
+      toleranceMs: number
+      emittedBytes: number
+      arrivedBytes: number
+    }
+  | {
       kind: 'arrival-gap'
       index: number
       baselineGapMs: number
@@ -327,6 +359,43 @@ export type FidelityDiff =
   | { kind: 'truncation'; baseline: TruncationInfo; sut: TruncationInfo }
   | { kind: 'protocol'; side: 'baseline' | 'sut'; detail: string }
   | { kind: 'rig-error'; detail: string }
+
+/**
+ * Timing DIAGNOSTICS (spec §9.7): gap comparisons versus the baseline run and
+ * versus the nominal schedule are printed every run but gate nothing — under
+ * machine load the mock upstream's own arm jitters, and a faithful forwarder
+ * inherits that jitter honestly. They stay visible so the measurement never
+ * quietly stops existing; the chunk-transit axis is the gate.
+ */
+export interface TimingDiagnostics {
+  gapVsBaseline: { samples: number; maxAbsDevMs: number; meanDevMs: number }
+  gapVsNominal: { samples: number; maxAbsDevMs: number; meanDevMs: number }
+  chunkTransit: {
+    samples: number
+    maxMs: number
+    meanMs: number
+    toleranceMs: number
+    /**
+     * Count of chunks whose transit exceeded tolerance. Under the strict gate
+     * every spike is also a diff — this counter exists so a run that SURVIVED
+     * near the bound is distinguishable from a clean run (§9.7 condition:
+     * diagnostics stay visible regardless of what the gate does).
+     */
+    spikes: number
+    /** 'index' normally; 'cumulative' when both arms show identical environmental coalescing. */
+    alignment: 'index' | 'cumulative'
+    /** Upstream emit count (may exceed arrival count under kernel coalescing). */
+    emits: number
+  }
+  baselineTransit: { samples: number; maxMs: number; meanMs: number }
+  /**
+   * Set when a 'boundaries'-mode fixture's baseline realized fewer arrivals than
+   * the script schedules while the SUT mirrored it exactly: environmental kernel
+   * coalescing under load. Evidence, never a verdict — the structural comparison
+   * (sut vs baseline) still runs and still gates.
+   */
+  environmentalCoalescing?: { expected: number; realized: number }
+}
 
 export interface FidelityRunOptions {
   fixture: ResolvedFixture
@@ -350,6 +419,8 @@ export interface FidelityRunReport {
   sutName: string
   passed: boolean
   diffs: FidelityDiff[]
+  /** Printed every run, gates nothing (spec §9.7). */
+  diagnostics: TimingDiagnostics
   baseline: RunSide
   sut: RunSide
   durationMs: number
