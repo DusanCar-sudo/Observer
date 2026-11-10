@@ -587,3 +587,78 @@ watcher adapter earns its place in v1: it is the only fixture source we have unt
 record **raw bytes**, not a parsed-and-re-serialised body. `reasoning_content` is absent from
 OpenAI's own `ChoiceDelta` schema, so a typed tap would silently drop 100% of reasoning on target
 one and every fixture captured through it would be wrong in a way no test would catch.
+
+---
+
+## 9. Amendments after V0/V0a (2026-11-10, lead)
+
+### 9.1 A8 was written wrong, and forge caught it
+
+**The original A8** — "a request that is not recognisably OpenAI Chat Completions (e.g.
+`tools[].input_schema` ⇒ Anthropic) returns 501" — implies a **body-substring scan**. That is an
+I1 hazard on target one, and a severe one:
+
+`"input_schema"` can appear inside message **content**. Any DSH session that merely *discusses*
+Anthropic's tool schema — which this project's own `docs/research/protocol-fidelity.md` does
+constantly — would have its legitimate qwen traffic refused with a 501. The supervisor would break
+the supervised agent **over conversation content**, and because qwen applies no prefix check and
+raises no alarm, nothing downstream would explain why. That is precisely the failure class this
+project exists to prevent, introduced by an acceptance criterion I wrote without considering what a
+substring scan actually matches.
+
+**Corrected A8.** The spirit of A8 is *"never **normalise** a dialect we have not implemented."*
+Pass-through does not normalise, so milestone 1 can refuse on structural signals that content
+cannot spoof, and merely *record* body-shape verdicts.
+
+| Layer | Signal | Action | Why it is safe |
+|---|---|---|---|
+| **Path** (hard) | Only `POST /v1/chat/completions` served. `/v1/responses` → 501 `unsupported-protocol`. Everything else, including `/v1/messages`, → 501. | refuse | Path discriminates the SDK families exactly, and message content cannot influence it. Verified `[SRC]`: pi-ai → `client.beta.messages.create` (`anthropic-messages.js:447`) → SDK posts `/v1/messages` (`@anthropic-ai/sdk messages.js:36`); the OpenAI SDK posts `/chat/completions` (`completions.js:24`) under the `/v1` baseURL. |
+| **Header** (hard) | `anthropic-version` present | refuse 501 | Zero false positives: no legitimate qwen request carries it. |
+| **Body shape** (soft, milestone 1) | V3's permissive parse of a *copy* finds it is not OpenAI Chat Completions shaped | **record on the capture + dashboard finding, forward faithfully** | Milestone 1 mutates nothing, so a misdialect body passing through untouched harms nothing. Hard refusal becomes safe once a real parse exists (V3+). |
+
+Three conditions on the soft layer, none optional:
+
+1. **The verdict is counted and visible**, not merely logged. A nonzero misdialect count during
+   ordinary DSH→qwen operation means *our* dialect assumption is wrong somewhere — that is a
+   finding about Observer, not about the traffic. A number nobody reads repeats the `warn`-scope
+   mistake documented in `docs/research/lead-verification-feelin.md`.
+2. Hard body-shape refusal, when enabled at V3+, sits behind an **explicit config flag defaulting
+   to off**, and flipping it is recorded in the actuation log. Enabling a refusal path silently is
+   how a supervisor starts eating traffic.
+3. The correction is recorded here with its reasoning, including that the original criterion was
+   the lead's and was wrong. An acceptance criterion that was silently reinterpreted is
+   indistinguishable from one that was silently weakened.
+
+### 9.2 Latency measurement must be protocol-checked, not just timed
+
+From the V4b/A7 benchmark harness: runs alternate **direct / SUT in pairs** so machine drift
+cancels per pair, warmup is excluded, percentiles are nearest-rank, and **every pair is
+protocol-sanity-checked** — a body-sha divergence mid-benchmark registers as an anomaly and fails
+the budget check. The principle to carry into every future benchmark:
+
+> **The latency of a mutated response is not a measurement.** A proxy can always hit a latency
+> budget by doing less than it claimed to do.
+
+The tight A7 budgets (p50 < 15 ms, p99 < 40 ms over ≥1000 requests) run in V1's acceptance suite,
+not in the rig's smoke tests.
+
+### 9.3 Recorded transformations are calibrations; unrecorded ones are lies
+
+The capture→fixture export pipeline re-stages two things because loopback cannot reproduce
+provider timing deterministically: sub-10 ms bursts are merged, and delays are floored. **Body
+bytes stay exact**, and both transformations are written into the fixture notes. That is the
+difference between a documented calibration and a silent falsification, and it is the standard for
+every fixture in this repo: if the harness had to change something to make a measurement possible,
+the fixture says so.
+
+### 9.4 Two bugs found by tests, promoted to design constraints
+
+- **Capture-id collision → silent overwrite.** Two recorders sharing an `outDir` produced identical
+  ids (same second + pid + per-instance counter) and clobbered each other. Mitigated with
+  pid + random + counter + an existence guard, but the constraint for **V2** is stronger: an
+  append-only store must make clobbering **unrepresentable**, not merely unlikely. A store that can
+  silently overwrite is not append-only, and I2's reconstruction guarantee depends on it.
+- **Keep-alive finalise race.** The next request's bytes arriving during write-behind capture
+  finalisation were misclassified as pipelining and the connection was killed. This shape recurs in
+  the gateway between streaming a response and capturing it, so **V1 carries it as a named test**,
+  not a comment.

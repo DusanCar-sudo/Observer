@@ -265,7 +265,12 @@
     "## 5. Definition of done for the slice",
     "## 6. Explicit non-goals",
     "## 7. Two things to decide before V1 starts",
-    "## 8. Lead resolutions to §7 (2026-11-09)"
+    "## 8. Lead resolutions to §7 (2026-11-09)",
+    "## 9. Amendments after V0/V0a (2026-11-10, lead)",
+    "### 9.1 A8 was written wrong, and forge caught it",
+    "### 9.2 Latency measurement must be protocol-checked, not just timed",
+    "### 9.3 Recorded transformations are calibrations; unrecorded ones are lies",
+    "### 9.4 Two bugs found by tests, promoted to design constraints"
   ],
   "BRAINSTORM.md": [
     "# Observer — Brainstorm 01: Core Architecture",
